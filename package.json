@@ -1,7 +1,7 @@
 {
-  "name": "decky-plugin-template",
-  "version": "0.0.1",
-  "description": "A template to quickly create decky plugins from scratch, based on TypeScript and webpack",
+  "name": "docked-steamdeck-input-disabler",
+  "version": "1.0.0",
+  "description": "A plugin that lets you disable the steamdeck input while docked to prevent bugs with controller order and emulators not picking up the right controller.",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w",
@@ -9,21 +9,23 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SteamDeckHomebrew/decky-plugin-template.git"
+    "url": "git+https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler.git"
   },
   "keywords": [
     "decky",
     "plugin",
-    "plugin-template",
+    "docked",
+    "bluetooth",
+    "controller",
     "steam-deck",
     "deck"
   ],
-  "author": "Jonas Dellinger <jonas@dellinger.dev>",
+  "author": "William Goyette <willpower1@live.ca>",
   "license": "BSD-3-Clause",
   "bugs": {
-    "url": "https://github.com/SteamDeckHomebrew/decky-plugin-template/issues"
+    "url": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler/issues"
   },
-  "homepage": "https://github.com/SteamDeckHomebrew/decky-plugin-template#readme",
+  "homepage": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler.git#readme",
   "devDependencies": {
     "@rollup/plugin-commonjs": "^21.1.0",
     "@rollup/plugin-json": "^4.1.0",
@@ -39,7 +41,7 @@
     "typescript": "^4.7.4"
   },
   "dependencies": {
-    "decky-frontend-lib": "^3.24.5",
+    "decky-frontend-lib": "^3.25.0",
     "react-icons": "^4.4.0"
   },
   "pnpm": {
