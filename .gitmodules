@@ -1,0 +1,3 @@
+[submodule "defaults/auto-disable-steam-controller"]
+	path = defaults/auto-disable-steam-controller
+	url = https://github.com/scawp/Steam-Deck.Auto-Disable-Steam-Controller.git

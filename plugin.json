@@ -1,10 +1,10 @@
 {
-  "name": "Example Plugin",
-  "author": "John Doe",
-  "flags": ["debug", "_root"],
+  "name": "Docked Steamdeck Input Disabler",
+  "author": "William Goyette",
+  "flags": ["root"],
   "publish": {
-    "tags": ["template", "root"],
-    "description": "Decky example plugin.",
+    "tags": ["utility", "controller", "fix", "bluetooth", "root"],
+    "description": "A plugin that lets you disable the steamdeck input while docked to prevent bugs with controller order and emulators not picking up the right controller.",
     "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
   }
 }
