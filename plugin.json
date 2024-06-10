@@ -1,5 +1,5 @@
 {
-  "name": "Docked Steamdeck Input Disabler",
+  "name": "docked-steamdeck-input-disabler",
   "author": "William Goyette",
   "flags": ["root"],
   "publish": {

@@ -8,7 +8,7 @@ import pathlib
 import decky_plugin
 
 # Path to the script
-SCRIPT_PATH = os.path.join(pathlib.Path(__file__).parent.resolve(),"auto-disable-steam-controller/disable_steam_input.sh")
+SCRIPT_PATH = "'" + os.path.join(pathlib.Path(__file__).parent.resolve(),"auto-disable-steam-controller/disable_steam_input.sh'")
 
 # Path to the udev rules
 RULES_PATH = "/etc/udev/rules.d/99-disable-steam-input.rules"
@@ -30,10 +30,6 @@ REENABLE_STEAMDECK_COMMANDS = [
 ]
 
 class Plugin:
-    # A normal method. It can be called from JavaScript using call_plugin_function("method_1", argument1, argument2)
-    async def add(self, left, right):
-        return left + right
-    
     async def set_script(self, enabled: bool):
         try:
             exists = os.path.exists(RULES_PATH)
