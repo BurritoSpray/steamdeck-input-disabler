@@ -18,6 +18,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
     (async () => {
       if (buttonClicked){
         localStorage.setItem("script_state", scriptEnabled ? "true" : "false");
+        // console.log(await serverAPI.callPluginMethod('set_script', {'enabled': scriptEnabled}));
         await serverAPI.callPluginMethod('set_script', {'enabled': scriptEnabled});
         setButtonClicked(false);
       }
