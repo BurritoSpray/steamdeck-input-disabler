@@ -30,7 +30,7 @@ const Content: VFC<{ serverAPI: ServerAPI }> = ({serverAPI}) => {
   return (
     <PanelSection title="Options">
       <PanelSectionRow>
-        <ToggleField checked={scriptEnabled} label={"Disable deck when docked"} onChange={e => {setScriptEnabled(e); setButtonClicked(true)}}/>
+        <ToggleField checked={scriptEnabled} label={"Enable plugin"} onChange={e => {setScriptEnabled(e); setButtonClicked(true)}}/>
       </PanelSectionRow>
     </PanelSection>
   );
