@@ -1,10 +1,10 @@
 {
-  "name": "docked-steamdeck-input-disabler",
+  "name": "steamdeck-input-disabler",
   "author": "William Goyette",
   "flags": ["root"],
   "publish": {
     "tags": ["utility", "controller", "fix", "bluetooth", "root"],
-    "description": "A plugin that lets you disable the steamdeck input while docked to prevent bugs with controller order and emulators not picking up the right controller.",
-    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+    "description": "A plugin that lets you disable the steamdeck gamepad to prevent bugs with in game controller order and emulators not picking up the right controller.",
+    "image": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler/-/blob/main/assets/logo.png"
   }
 }

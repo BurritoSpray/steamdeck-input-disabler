@@ -1,7 +1,7 @@
 {
-  "name": "docked-steamdeck-input-disabler",
-  "version": "1.0.1",
-  "description": "A plugin that lets you disable the steamdeck input while docked to prevent bugs with controller order and emulators not picking up the right controller.",
+  "name": "steamdeck-input-disabler",
+  "version": "1.0.2",
+  "description": "A plugin that lets you disable the steamdeck gamepad to prevent bugs with controller order and emulators not picking up the right controller.",
   "scripts": {
     "build": "shx rm -rf dist && rollup -c",
     "watch": "rollup -c -w",
@@ -14,7 +14,6 @@
   "keywords": [
     "decky",
     "plugin",
-    "docked",
     "bluetooth",
     "controller",
     "steam-deck",

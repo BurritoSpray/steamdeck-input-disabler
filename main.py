@@ -75,12 +75,12 @@ class Plugin:
 
     # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
-        decky_plugin.logger.info("Hello World!")
+        decky_plugin.logger.info("steamdeck-input-disabler loaded")
 
     # Function called first during the unload process, utilize this to handle your plugin being removed
     async def _unload(self):
-        decky_plugin.logger.info("Goodbye World!")
-        pass
+        decky_plugin.logger.info("Disabling the script before unloading...")
+        self.set_script(False)
 
     # Migrations that should be performed before entering `_main()`.
     async def _migration(self):
