@@ -3,6 +3,8 @@ import glob
 import json
 import os
 import re
+import shutil
+import subprocess
 
 import decky
 
@@ -141,6 +143,34 @@ class Plugin:
         if self._disabled:
             _rebind_deck()
             self._disabled = False
+
+    async def _migration(self):
+        # Versions <= 1.0.2 installed a udev rule pointing at a bundled bash script
+        # and left a runtime dir under /tmp/scawp. Clean both up so the new pyudev-based
+        # path is the only thing watching for controller events.
+        legacy_rules = "/etc/udev/rules.d/99-disable-steam-input.rules"
+        if os.path.exists(legacy_rules):
+            try:
+                os.remove(legacy_rules)
+                decky.logger.info(f"Removed legacy udev rules at {legacy_rules}")
+                subprocess.run(["udevadm", "control", "--reload"], check=False)
+            except OSError as e:
+                decky.logger.error(f"Could not remove {legacy_rules}: {e}")
+
+        legacy_tmp = "/tmp/scawp"
+        if os.path.isdir(legacy_tmp):
+            try:
+                shutil.rmtree(legacy_tmp, ignore_errors=True)
+                decky.logger.info(f"Removed legacy runtime dir {legacy_tmp}")
+            except Exception as e:
+                decky.logger.error(f"Could not remove {legacy_tmp}: {e}")
+
+        # If the old version had unbound the Deck pad and never got a chance to rebind it,
+        # restore it now. If _main re-disables it for a connected controller, that's fine.
+        try:
+            _rebind_deck()
+        except Exception as e:
+            decky.logger.debug(f"Migration rebind: {e}")
 
     def _rebuild_allowlist(self):
         ids = set()

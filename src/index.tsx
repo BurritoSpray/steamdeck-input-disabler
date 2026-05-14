@@ -157,6 +157,8 @@ function Content() {
   }, []);
 
   useEffect(() => {
+    // Drop the toggle key persisted by versions <= 1.0.2; backend state is now authoritative.
+    try { localStorage.removeItem("script_state"); } catch {}
     refreshState();
   }, [refreshState]);
 
