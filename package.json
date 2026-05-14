@@ -1,15 +1,16 @@
 {
   "name": "steamdeck-input-disabler",
-  "version": "1.0.2",
-  "description": "A plugin that lets you disable the steamdeck gamepad to prevent bugs with controller order and emulators not picking up the right controller.",
+  "version": "1.1.0",
+  "description": "Disables the Steam Deck's built-in gamepad when a supported external controller connects. Includes a user-extensible allowlist and a controller ID extractor.",
+  "type": "module",
   "scripts": {
-    "build": "shx rm -rf dist && rollup -c",
+    "build": "rollup -c",
     "watch": "rollup -c -w",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler.git"
+    "url": "git+https://github.com/BurritoSpray/steamdeck-input-disabler.git"
   },
   "keywords": [
     "decky",
@@ -22,26 +23,23 @@
   "author": "William Goyette <willpower1@live.ca>",
   "license": "BSD-3-Clause",
   "bugs": {
-    "url": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler/issues"
+    "url": "https://github.com/BurritoSpray/steamdeck-input-disabler/issues"
   },
-  "homepage": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler.git#readme",
+  "homepage": "https://github.com/BurritoSpray/steamdeck-input-disabler#readme",
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^21.1.0",
-    "@rollup/plugin-json": "^4.1.0",
-    "@rollup/plugin-node-resolve": "^13.3.0",
-    "@rollup/plugin-replace": "^4.0.0",
-    "@rollup/plugin-typescript": "^8.3.3",
-    "@types/react": "16.14.0",
-    "@types/webpack": "^5.28.0",
-    "rollup": "^2.77.1",
-    "rollup-plugin-import-assets": "^1.1.1",
-    "shx": "^0.3.4",
-    "tslib": "^2.4.0",
-    "typescript": "^4.7.4"
+    "@decky/rollup": "^1.0.2",
+    "@decky/ui": "^4.11.0",
+    "@rollup/rollup-linux-x64-musl": "^4.53.3",
+    "@types/react": "19.1.1",
+    "@types/react-dom": "19.1.1",
+    "@types/webpack": "^5.28.5",
+    "rollup": "^4.53.3",
+    "typescript": "^5.6.2"
   },
   "dependencies": {
-    "decky-frontend-lib": "^3.25.0",
-    "react-icons": "^4.4.0"
+    "@decky/api": "^1.1.3",
+    "react-icons": "^5.3.0",
+    "tslib": "^2.7.0"
   },
   "pnpm": {
     "peerDependencyRules": {

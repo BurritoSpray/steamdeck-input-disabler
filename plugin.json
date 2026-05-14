@@ -5,6 +5,6 @@
   "publish": {
     "tags": ["utility", "controller", "fix", "bluetooth", "root"],
     "description": "A plugin that lets you disable the steamdeck gamepad to prevent bugs with in game controller order and emulators not picking up the right controller.",
-    "image": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler/-/blob/main/assets/logo.png"
+    "image": "https://raw.githubusercontent.com/BurritoSpray/steamdeck-input-disabler/main/assets/logo.png"
   }
 }
