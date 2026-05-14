@@ -1,103 +1,326 @@
+import asyncio
+import glob
+import json
 import os
-import subprocess
-import pathlib
+import re
 
-# The decky plugin module is located at decky-loader/plugin
-# For easy intellisense checkout the decky-loader code one directory up
-# or add the `decky-loader/plugin` path to `python.analysis.extraPaths` in `.vscode/settings.json`
-import decky_plugin
+import decky
 
-# Path to the script
-SCRIPT_PATH = "'" + os.path.join(pathlib.Path(__file__).parent.resolve(),"auto-disable-steam-controller/disable_steam_input.sh'")
+try:
+    import pyudev
+    _PYUDEV_AVAILABLE = True
+    _PYUDEV_IMPORT_ERROR = None
+except Exception as e:
+    pyudev = None
+    _PYUDEV_AVAILABLE = False
+    _PYUDEV_IMPORT_ERROR = f"{type(e).__name__}: {e}"
 
-# Path to the udev rules
-RULES_PATH = "/etc/udev/rules.d/99-disable-steam-input.rules"
+PLUGIN_DIR = decky.DECKY_PLUGIN_DIR
+SETTINGS_DIR = decky.DECKY_PLUGIN_SETTINGS_DIR
 
-# File used to store currently connected bluetooth controllers
-CONTROLLER_FILE = "/tmp/scawp/SDADSC/controller_id.txt"
+BASE_CONTROLLERS_PATH = os.path.join(PLUGIN_DIR, "base_controllers.json")
+USER_CONTROLLERS_PATH = os.path.join(SETTINGS_DIR, "user_controllers.json")
+SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
 
-# Udev rules
-RULES = [
-    f'KERNEL=="input*", SUBSYSTEM=="input", ENV{{ID_INPUT_JOYSTICK}}=="1", ACTION=="add", RUN+="{SCRIPT_PATH} disable %k %E{{NAME}} %E{{UNIQ}} %E{{PRODUCT}}"\n',
-    f'KERNEL=="input*", SUBSYSTEM=="input", ENV{{ID_INPUT_JOYSTICK}}=="1", ACTION=="remove", RUN+="{SCRIPT_PATH} enable %k %E{{NAME}} %E{{UNIQ}} %E{{PRODUCT}}"\n'
-]
+DECK_VID = "28de"
+DECK_PID = "1205"
 
-# Steamdeck controller identifier
-REENABLE_STEAMDECK_COMMANDS = [
-    '3-3:1.0',
-    '3-3:1.1',
-    '3-3:1.2'
-]
+VID_PID_RE = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{4}$")
+
+
+def _read_json(path, default):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError as e:
+        decky.logger.error(f"Malformed JSON at {path}: {e}")
+        return default
+    except OSError as e:
+        decky.logger.error(f"Failed to read {path}: {e}")
+        return default
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def _parse_product(product):
+    if not product:
+        return None
+    parts = product.split("/")
+    if len(parts) < 3:
+        return None
+    try:
+        vid = f"{int(parts[1], 16):04x}"
+        pid = f"{int(parts[2], 16):04x}"
+        return vid, pid
+    except (ValueError, IndexError):
+        return None
+
+
+def _find_deck_hid_interfaces():
+    interfaces = []
+    for dev_path in glob.glob("/sys/bus/usb/devices/*"):
+        vid_path = os.path.join(dev_path, "idVendor")
+        pid_path = os.path.join(dev_path, "idProduct")
+        if not (os.path.isfile(vid_path) and os.path.isfile(pid_path)):
+            continue
+        try:
+            with open(vid_path) as f:
+                vid = f.read().strip().lower()
+            with open(pid_path) as f:
+                pid = f.read().strip().lower()
+        except OSError:
+            continue
+        if vid != DECK_VID or pid != DECK_PID:
+            continue
+        dev_name = os.path.basename(dev_path)
+        for iface in glob.glob(os.path.join(dev_path, f"{dev_name}:*")):
+            interfaces.append(os.path.basename(iface))
+    return interfaces
+
+
+def _unbind_deck():
+    interfaces = _find_deck_hid_interfaces()
+    if not interfaces:
+        decky.logger.warning("No Steam Deck HID interfaces found to unbind")
+        return
+    for iface in interfaces:
+        try:
+            with open("/sys/bus/usb/drivers/usbhid/unbind", "w") as f:
+                f.write(iface)
+        except OSError as e:
+            decky.logger.debug(f"unbind {iface}: {e}")
+
+
+def _rebind_deck():
+    interfaces = _find_deck_hid_interfaces()
+    if not interfaces:
+        decky.logger.warning("No Steam Deck HID interfaces found to rebind")
+        return
+    for iface in interfaces:
+        try:
+            with open("/sys/bus/usb/drivers/usbhid/bind", "w") as f:
+                f.write(iface)
+        except OSError as e:
+            decky.logger.debug(f"bind {iface}: {e}")
+
 
 class Plugin:
-    async def set_script(self, enabled: bool):
-        try:
-            exists = os.path.exists(RULES_PATH)
-            
-            if not enabled and exists:
-                # Remove the udev rules
-                try:
-                    os.remove(RULES_PATH)
-                except OSError:
-                    pass
-                
-            elif enabled:
-                # Add the rules in udev rules folder
-                with open(RULES_PATH, 'w') as f:
-                    f.writelines(RULES)
-                    
-            # Reload udev after changing the option
-            subprocess.run(['udevadm', 'control', '--reload'])
-            
-            if not enabled:
-                # Remove the old 
-                try:
-                    os.remove(CONTROLLER_FILE)
-                except OSError:
-                    pass
-                
-                # Force reenable the steamdeck when turning off the option
-                for device in REENABLE_STEAMDECK_COMMANDS:
-                    try:                        
-                        with open('/sys/bus/usb/drivers/usbhid/bind', 'w') as f:
-                            f.write(device)
-                    except OSError:
-                        pass
-            else:
-                # Restart bluetooth to redetect controllers and run udev rules
-                subprocess.run(['bluetoothctl', 'power', 'off'])
-                subprocess.run(['bluetoothctl', 'power', 'on'])
-                
-        except Exception as e:
-            return str(e)
-        return "OK"
-            
-
-    # Asyncio-compatible long-running code, executed in a task when the plugin is loaded
     async def _main(self):
-        decky_plugin.logger.info("steamdeck-input-disabler loaded")
+        self._loop = asyncio.get_running_loop()
+        self._lock = asyncio.Lock()
+        self._observer = None
+        self._connected = {}
+        self._disabled = False
+        self._import_error = _PYUDEV_IMPORT_ERROR
 
-    # Function called first during the unload process, utilize this to handle your plugin being removed
+        self._base_controllers = _read_json(BASE_CONTROLLERS_PATH, [])
+        self._user_controllers = _read_json(USER_CONTROLLERS_PATH, [])
+        self._settings = _read_json(SETTINGS_PATH, {"enabled": False})
+        self._rebuild_allowlist()
+
+        decky.logger.info(
+            f"steamdeck-input-disabler loaded "
+            f"(base={len(self._base_controllers)}, user={len(self._user_controllers)}, "
+            f"enabled={self._settings.get('enabled', False)}, pyudev={_PYUDEV_AVAILABLE})"
+        )
+
+        if self._settings.get("enabled") and _PYUDEV_AVAILABLE:
+            await self._start_observer()
+
     async def _unload(self):
-        decky_plugin.logger.info("Disabling the script before unloading...")
-        self.set_script(False)
+        decky.logger.info("Unloading steamdeck-input-disabler")
+        await self._stop_observer()
+        if self._disabled:
+            _rebind_deck()
+            self._disabled = False
 
-    # Migrations that should be performed before entering `_main()`.
-    async def _migration(self):
-        decky_plugin.logger.info("Migrating")
-        # Here's a migration example for logs:
-        # - `~/.config/decky-template/template.log` will be migrated to `decky_plugin.DECKY_PLUGIN_LOG_DIR/template.log`
-        decky_plugin.migrate_logs(os.path.join(decky_plugin.DECKY_USER_HOME,
-                                               ".config", "decky-template", "template.log"))
-        # Here's a migration example for settings:
-        # - `~/homebrew/settings/template.json` is migrated to `decky_plugin.DECKY_PLUGIN_SETTINGS_DIR/template.json`
-        # - `~/.config/decky-template/` all files and directories under this root are migrated to `decky_plugin.DECKY_PLUGIN_SETTINGS_DIR/`
-        decky_plugin.migrate_settings(
-            os.path.join(decky_plugin.DECKY_HOME, "settings", "template.json"),
-            os.path.join(decky_plugin.DECKY_USER_HOME, ".config", "decky-template"))
-        # Here's a migration example for runtime data:
-        # - `~/homebrew/template/` all files and directories under this root are migrated to `decky_plugin.DECKY_PLUGIN_RUNTIME_DIR/`
-        # - `~/.local/share/decky-template/` all files and directories under this root are migrated to `decky_plugin.DECKY_PLUGIN_RUNTIME_DIR/`
-        decky_plugin.migrate_runtime(
-            os.path.join(decky_plugin.DECKY_HOME, "template"),
-            os.path.join(decky_plugin.DECKY_USER_HOME, ".local", "share", "decky-template"))
+    def _rebuild_allowlist(self):
+        ids = set()
+        for entry in self._base_controllers:
+            vp = (entry.get("vid_pid") or "").lower()
+            if VID_PID_RE.match(vp):
+                ids.add(vp)
+        for entry in self._user_controllers:
+            vp = (entry.get("vid_pid") or "").lower()
+            if VID_PID_RE.match(vp):
+                ids.add(vp)
+        self._allowlist = ids
+
+    async def _start_observer(self):
+        if not _PYUDEV_AVAILABLE or self._observer is not None:
+            return
+        context = pyudev.Context()
+        monitor = pyudev.Monitor.from_netlink(context)
+        monitor.filter_by(subsystem="input")
+        self._observer = pyudev.MonitorObserver(monitor, callback=self._on_udev_event_threadsafe)
+        self._observer.start()
+        decky.logger.info("pyudev observer started")
+        await self._enumerate_existing(context)
+
+    async def _stop_observer(self):
+        if self._observer is None:
+            return
+        try:
+            self._observer.stop()
+        except Exception as e:
+            decky.logger.error(f"Failed to stop observer: {e}")
+        self._observer = None
+        decky.logger.info("pyudev observer stopped")
+
+    def _on_udev_event_threadsafe(self, device):
+        try:
+            asyncio.run_coroutine_threadsafe(self._on_udev_event(device), self._loop)
+        except Exception as e:
+            decky.logger.error(f"Failed to schedule udev event: {e}")
+
+    async def _on_udev_event(self, device):
+        async with self._lock:
+            self._handle_device_event(device.action, device)
+
+    def _handle_device_event(self, action, device):
+        if not self._settings.get("enabled"):
+            return
+        if device.get("ID_INPUT_JOYSTICK") != "1":
+            return
+        parsed = _parse_product(device.get("PRODUCT"))
+        if parsed is None:
+            return
+        vid_pid = f"{parsed[0]}:{parsed[1]}"
+        if vid_pid not in self._allowlist:
+            return
+        kernel = device.sys_name
+        if action == "add":
+            if kernel in self._connected:
+                return
+            self._connected[kernel] = {
+                "kernel": kernel,
+                "vid_pid": vid_pid,
+                "name": (device.get("NAME") or "").strip('"'),
+            }
+            decky.logger.info(f"Allowed controller added: {kernel} ({vid_pid})")
+            if not self._disabled:
+                _unbind_deck()
+                self._disabled = True
+        elif action == "remove":
+            if kernel not in self._connected:
+                return
+            self._connected.pop(kernel)
+            decky.logger.info(f"Allowed controller removed: {kernel} ({vid_pid})")
+            if not self._connected and self._disabled:
+                _rebind_deck()
+                self._disabled = False
+
+    async def _enumerate_existing(self, context):
+        try:
+            for device in context.list_devices(subsystem="input", ID_INPUT_JOYSTICK="1"):
+                self._handle_device_event("add", device)
+        except Exception as e:
+            decky.logger.error(f"Startup enumeration failed: {e}")
+
+    async def get_state(self) -> dict:
+        return {
+            "enabled": self._settings.get("enabled", False),
+            "disabled_deck": self._disabled,
+            "connected": list(self._connected.values()),
+            "base_controllers": list(self._base_controllers),
+            "user_controllers": list(self._user_controllers),
+            "pyudev_available": _PYUDEV_AVAILABLE,
+            "pyudev_error": self._import_error,
+        }
+
+    async def set_enabled(self, enabled: bool) -> dict:
+        async with self._lock:
+            if enabled and not _PYUDEV_AVAILABLE:
+                return {"ok": False, "error": f"pyudev unavailable: {self._import_error}"}
+            was = self._settings.get("enabled", False)
+            self._settings["enabled"] = bool(enabled)
+            try:
+                _write_json(SETTINGS_PATH, self._settings)
+            except OSError as e:
+                self._settings["enabled"] = was
+                return {"ok": False, "error": f"Failed to write settings: {e}"}
+            if enabled and not was:
+                await self._start_observer()
+            elif not enabled and was:
+                await self._stop_observer()
+                if self._disabled:
+                    _rebind_deck()
+                    self._disabled = False
+                self._connected.clear()
+        return {"ok": True}
+
+    async def add_controller(self, vid_pid: str, name: str) -> dict:
+        vid_pid = (vid_pid or "").strip().lower()
+        name = (name or "").strip()
+        if not VID_PID_RE.match(vid_pid):
+            return {"ok": False, "error": "VID:PID must be in format xxxx:xxxx (hex digits)."}
+        if not name:
+            return {"ok": False, "error": "Name is required."}
+        async with self._lock:
+            for entry in self._base_controllers:
+                if (entry.get("vid_pid") or "").lower() == vid_pid:
+                    return {"ok": False, "error": "Already in the built-in list."}
+            for entry in self._user_controllers:
+                if (entry.get("vid_pid") or "").lower() == vid_pid:
+                    return {"ok": False, "error": "Already in your list."}
+            self._user_controllers.append({"vid_pid": vid_pid, "name": name})
+            try:
+                _write_json(USER_CONTROLLERS_PATH, self._user_controllers)
+            except OSError as e:
+                self._user_controllers.pop()
+                return {"ok": False, "error": f"Failed to save: {e}"}
+            self._rebuild_allowlist()
+        return {"ok": True}
+
+    async def remove_controller(self, vid_pid: str) -> dict:
+        vid_pid = (vid_pid or "").strip().lower()
+        async with self._lock:
+            for i, entry in enumerate(self._user_controllers):
+                if (entry.get("vid_pid") or "").lower() == vid_pid:
+                    removed = self._user_controllers.pop(i)
+                    try:
+                        _write_json(USER_CONTROLLERS_PATH, self._user_controllers)
+                    except OSError as e:
+                        self._user_controllers.insert(i, removed)
+                        return {"ok": False, "error": f"Failed to save: {e}"}
+                    self._rebuild_allowlist()
+                    return {"ok": True}
+        return {"ok": False, "error": "Not in your list. Built-in entries can't be removed."}
+
+    async def get_current_devices(self) -> list:
+        out = []
+        if not _PYUDEV_AVAILABLE:
+            return out
+        try:
+            context = pyudev.Context()
+            seen = set()
+            for device in context.list_devices(subsystem="input", ID_INPUT_JOYSTICK="1"):
+                parsed = _parse_product(device.get("PRODUCT"))
+                if parsed is None:
+                    continue
+                vid_pid = f"{parsed[0]}:{parsed[1]}"
+                name = (device.get("NAME") or "").strip('"')
+                key = (vid_pid, name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({
+                    "kernel": device.sys_name,
+                    "name": name,
+                    "uniq": (device.get("UNIQ") or "").strip('"'),
+                    "product": device.get("PRODUCT") or "",
+                    "vid_pid": vid_pid,
+                    "is_supported": vid_pid in self._allowlist,
+                    "is_internal": vid_pid == f"{DECK_VID}:{DECK_PID}",
+                })
+        except Exception as e:
+            decky.logger.error(f"get_current_devices failed: {e}")
+        return out
