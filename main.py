@@ -144,6 +144,20 @@ class Plugin:
         self._settings = _read_json(SETTINGS_PATH, {"enabled": False})
         self._overrides = _read_json(OVERRIDES_PATH, {})
         self._rebuild_allowlist()
+
+        # Defensive rebind on startup. A previous plugin process that crashed or was
+        # killed mid-flight (e.g. during an update) can leave the Deck's HID interfaces
+        # unbound from the kernel driver. A fresh process has no tracked controllers,
+        # so it's safe to assume any unbound state we observe now is stale. The
+        # observer's enumerate step right below will re-disable the Deck pad if a
+        # supported controller is actually present, so the steady-state behavior is
+        # unchanged.
+        try:
+            _rebind_deck()
+        except Exception as e:
+            decky.logger.debug(f"Startup rebind: {e}")
+        self._disabled = False
+
         self._ready = True
 
         decky.logger.info(
@@ -156,11 +170,34 @@ class Plugin:
             await self._start_observer()
 
     async def _unload(self):
+        # Always rebind on the way out. The previous behavior of gating this on
+        # self._disabled was a stale-state landmine: if the process gets killed or
+        # the in-memory flag desyncs from the kernel, the Deck pad stays unbound
+        # until reboot, taking Steam Input down with it.
         decky.logger.info("Unloading steamdeck-input-disabler")
-        await self._stop_observer()
-        if self._disabled:
+        try:
+            await self._stop_observer()
+        except Exception as e:
+            decky.logger.error(f"Observer stop during unload: {e}")
+        try:
             _rebind_deck()
-            self._disabled = False
+        except Exception as e:
+            decky.logger.error(f"Rebind during unload: {e}")
+        self._disabled = False
+        self._connected.clear()
+
+    async def _uninstall(self):
+        # Decky calls this when the plugin is being removed. Same cleanup as _unload
+        # so we don't leave the system with the Deck pad permanently unbound.
+        decky.logger.info("Uninstalling steamdeck-input-disabler")
+        try:
+            await self._stop_observer()
+        except Exception as e:
+            decky.logger.error(f"Observer stop during uninstall: {e}")
+        try:
+            _rebind_deck()
+        except Exception as e:
+            decky.logger.error(f"Rebind during uninstall: {e}")
 
     async def _migration(self):
         # Versions <= 1.0.2 installed a udev rule pointing at a bundled bash script
