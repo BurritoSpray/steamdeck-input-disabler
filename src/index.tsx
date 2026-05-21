@@ -177,12 +177,30 @@ function ControllerListView({
   const [filter, setFilter] = useState<FilterMode>("all");
 
   // Poll while the list is open so the 'connected' tag follows plug/unplug
-  // events without the user having to back out.
+  // events without the user having to back out. The interval only exists
+  // while the page is visible; hiding the QAM tears it down and showing it
+  // again recreates it, so we never poll in the background.
   useEffect(() => {
-    const id = setInterval(() => {
-      onRefresh();
-    }, 2000);
-    return () => clearInterval(id);
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = setInterval(onRefresh, 2000);
+    };
+    const stop = () => {
+      if (id === null) return;
+      clearInterval(id);
+      id = null;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (document.visibilityState === "visible") start();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
   }, [onRefresh]);
 
   const presentSet = useMemo(
