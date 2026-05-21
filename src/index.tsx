@@ -174,7 +174,19 @@ function ControllerListView({
   onRefresh: () => Promise<unknown>;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterMode>("all");
+  // Default to the 'Connected' filter if at least one known controller is
+  // currently plugged in, otherwise fall back to 'All'. Only evaluated once
+  // on mount so plugging or unplugging later won't yank the user's filter
+  // out from under them.
+  const [filter, setFilter] = useState<FilterMode>(() => {
+    const present = new Set((state.present_vid_pids || []).map((v) => v.toLowerCase()));
+    if (present.size === 0) return "all";
+    const known = [
+      ...state.user_controllers,
+      ...state.base_controllers,
+    ].some((c) => present.has(c.vid_pid.toLowerCase()));
+    return known ? "connected" : "all";
+  });
 
   // Poll while the list is open so the 'connected' tag follows plug/unplug
   // events without the user having to back out. The interval only exists
