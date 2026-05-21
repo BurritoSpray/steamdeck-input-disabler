@@ -593,16 +593,22 @@ function Content() {
           </PanelSectionRow>
         )}
         {devices?.map((d) => {
-          const badge = d.is_internal
-            ? "INTERNAL"
-            : d.is_supported
-              ? "SUPPORTED"
-              : "UNKNOWN";
-          const badgeColor = d.is_internal
-            ? "#888"
-            : d.is_supported
-              ? "#5ec269"
-              : "#e0a93b";
+          let badge: string;
+          let badgeColor: string;
+          if (d.is_internal) {
+            badge = "INTERNAL";
+            badgeColor = "#888";
+          } else if (d.is_supported && d.is_active) {
+            badge = "SUPPORTED";
+            badgeColor = "#5ec269";
+          } else if (d.is_supported) {
+            // Known to the plugin but the entry is toggled off in the list.
+            badge = "SUPPORTED (disabled)";
+            badgeColor = "#888";
+          } else {
+            badge = "UNKNOWN";
+            badgeColor = "#e0a93b";
+          }
           return (
             <PanelSectionRow key={`dev-${d.kernel}`}>
               <Field
