@@ -1,18 +1,29 @@
 import {
   ButtonItem,
   ConfirmModal,
+  DialogButton,
   Field,
+  Focusable,
   PanelSection,
   PanelSectionRow,
   TextField,
+  Toggle,
   ToggleField,
   showModal,
   staticClasses,
   toaster,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
-import { useCallback, useEffect, useState } from "react";
-import { FaCopy, FaGamepad, FaPlus, FaSyncAlt, FaTrash } from "react-icons/fa";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FaArrowLeft,
+  FaCopy,
+  FaGamepad,
+  FaListUl,
+  FaPlus,
+  FaSyncAlt,
+  FaTrash,
+} from "react-icons/fa";
 
 type Controller = { vid_pid: string; name: string; active: boolean };
 
@@ -50,6 +61,9 @@ const getState = callable<[], State>("get_state");
 const setEnabled = callable<[enabled: boolean], Result>("set_enabled");
 const addController = callable<[vid_pid: string, name: string], Result>("add_controller");
 const removeController = callable<[vid_pid: string], Result>("remove_controller");
+const setControllerActive = callable<[vid_pid: string, active: boolean], Result>(
+  "set_controller_active",
+);
 const getCurrentDevices = callable<[], CurrentDevice[]>("get_current_devices");
 
 const VID_PID_PATTERN = /^[0-9a-f]{4}:[0-9a-f]{4}$/i;
@@ -132,10 +146,147 @@ function AddControllerModal({
   );
 }
 
+type FilterMode = "all" | "base" | "user" | "active" | "inactive";
+
+const FILTERS: { id: FilterMode; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "user", label: "Mine" },
+  { id: "base", label: "Built-in" },
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+];
+
+function ControllerListView({
+  state,
+  onBack,
+  onAdd,
+  onToggleActive,
+  onRemove,
+}: {
+  state: State;
+  onBack: () => void;
+  onAdd: () => void;
+  onToggleActive: (vid_pid: string, next: boolean) => Promise<void>;
+  onRemove: (vid_pid: string) => Promise<void>;
+}) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<FilterMode>("all");
+
+  type Row = Controller & { source: "user" | "base" };
+  const rows = useMemo<Row[]>(() => {
+    const all: Row[] = [
+      ...state.user_controllers.map((c) => ({ ...c, source: "user" as const })),
+      ...state.base_controllers.map((c) => ({ ...c, source: "base" as const })),
+    ];
+    const q = query.trim().toLowerCase();
+    return all.filter((c) => {
+      if (filter === "base" && c.source !== "base") return false;
+      if (filter === "user" && c.source !== "user") return false;
+      if (filter === "active" && !c.active) return false;
+      if (filter === "inactive" && c.active) return false;
+      if (!q) return true;
+      return c.name.toLowerCase().includes(q) || c.vid_pid.toLowerCase().includes(q);
+    });
+  }, [state.user_controllers, state.base_controllers, query, filter]);
+
+  const total = state.user_controllers.length + state.base_controllers.length;
+
+  return (
+    <>
+      <PanelSection>
+        <PanelSectionRow>
+          <ButtonItem layout="below" icon={<FaArrowLeft />} onClick={onBack}>
+            Back
+          </ButtonItem>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <TextField
+            label="Search"
+            description={`${rows.length} of ${total} shown`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <Focusable
+            style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}
+            flow-children="horizontal"
+          >
+            {FILTERS.map((f) => (
+              <DialogButton
+                key={f.id}
+                style={{
+                  minWidth: 0,
+                  padding: "4px 10px",
+                  fontSize: "0.85em",
+                  opacity: filter === f.id ? 1 : 0.6,
+                }}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </DialogButton>
+            ))}
+          </Focusable>
+        </PanelSectionRow>
+      </PanelSection>
+
+      <PanelSection title="Supported Controllers">
+        {rows.length === 0 && (
+          <PanelSectionRow>
+            <Field label={query || filter !== "all" ? "No matches." : "No controllers in the list."} />
+          </PanelSectionRow>
+        )}
+        {rows.map((c) => (
+          <PanelSectionRow key={`${c.source}-${c.vid_pid}`}>
+            <Field
+              label={c.name}
+              description={
+                <span>
+                  {c.vid_pid}
+                  {" \u2014 "}
+                  <span style={{ opacity: 0.7 }}>
+                    {c.source === "user" ? "yours" : "built-in"}
+                  </span>
+                </span>
+              }
+              bottomSeparator="standard"
+              padding="compact"
+            >
+              <Focusable
+                style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                flow-children="horizontal"
+              >
+                <Toggle
+                  value={c.active}
+                  onChange={(next) => onToggleActive(c.vid_pid, next)}
+                />
+                {c.source === "user" && (
+                  <DialogButton
+                    style={{ minWidth: 0, padding: "4px 10px" }}
+                    onClick={() => onRemove(c.vid_pid)}
+                  >
+                    <FaTrash />
+                  </DialogButton>
+                )}
+              </Focusable>
+            </Field>
+          </PanelSectionRow>
+        ))}
+        <PanelSectionRow>
+          <ButtonItem layout="below" icon={<FaPlus />} onClick={onAdd}>
+            Add controller
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+    </>
+  );
+}
+
 function Content() {
   const [state, setState] = useState<State | null>(null);
   const [devices, setDevices] = useState<CurrentDevice[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [view, setView] = useState<"main" | "list">("main");
 
   const refreshState = useCallback(async () => {
     try {
@@ -201,6 +352,14 @@ function Content() {
     await refreshState();
   };
 
+  const onToggleActive = async (vid_pid: string, next: boolean) => {
+    const res = await setControllerActive(vid_pid, next);
+    if (!res.ok) {
+      toaster.toast({ title: "Couldn't change controller", body: res.error || "Unknown error" });
+    }
+    await refreshState();
+  };
+
   const openAddModal = (defaultVidPid = "", defaultName = "") => {
     showModal(
       <AddControllerModal
@@ -231,6 +390,18 @@ function Content() {
     );
   }
 
+  if (view === "list") {
+    return (
+      <ControllerListView
+        state={state}
+        onBack={() => setView("main")}
+        onAdd={() => openAddModal()}
+        onToggleActive={onToggleActive}
+        onRemove={onRemove}
+      />
+    );
+  }
+
   return (
     <>
       <PanelSection title="Options">
@@ -252,30 +423,11 @@ function Content() {
       </PanelSection>
 
       <PanelSection title="Supported Controllers">
-        {state.user_controllers.length === 0 && state.base_controllers.length === 0 && (
-          <PanelSectionRow>
-            <Field label="No controllers in the list." />
-          </PanelSectionRow>
-        )}
-        {state.user_controllers.map((c) => (
-          <PanelSectionRow key={`user-${c.vid_pid}`}>
-            <Field
-              label={c.name}
-              description={c.vid_pid}
-              icon={<FaTrash />}
-              onClick={() => onRemove(c.vid_pid)}
-              bottomSeparator="standard"
-            />
-          </PanelSectionRow>
-        ))}
-        {state.base_controllers.map((c) => (
-          <PanelSectionRow key={`base-${c.vid_pid}`}>
-            <Field label={c.name} description={c.vid_pid} bottomSeparator="standard" />
-          </PanelSectionRow>
-        ))}
         <PanelSectionRow>
-          <ButtonItem layout="below" icon={<FaPlus />} onClick={() => openAddModal()}>
-            Add controller
+          <ButtonItem layout="below" icon={<FaListUl />} onClick={() => setView("list")}>
+            {`Manage controllers (${
+              state.user_controllers.length + state.base_controllers.length
+            })`}
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
