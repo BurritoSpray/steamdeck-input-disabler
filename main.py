@@ -23,6 +23,10 @@ SETTINGS_DIR = decky.DECKY_PLUGIN_SETTINGS_DIR
 BASE_CONTROLLERS_PATH = os.path.join(PLUGIN_DIR, "base_controllers.json")
 USER_CONTROLLERS_PATH = os.path.join(SETTINGS_DIR, "user_controllers.json")
 SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
+# Per-VID:PID active overrides for built-in entries. User entries store
+# their active flag inline; the shipped base_controllers.json is read-only,
+# so we persist overrides separately to survive upgrades.
+OVERRIDES_PATH = os.path.join(SETTINGS_DIR, "controller_overrides.json")
 
 DECK_VID = "28de"
 DECK_PID = "1205"
@@ -128,6 +132,7 @@ class Plugin:
         self._base_controllers = []
         self._user_controllers = []
         self._settings = {"enabled": False}
+        self._overrides = {}
         self._allowlist = set()
         self._ready = False
 
@@ -137,6 +142,7 @@ class Plugin:
         self._base_controllers = _read_json(BASE_CONTROLLERS_PATH, [])
         self._user_controllers = _read_json(USER_CONTROLLERS_PATH, [])
         self._settings = _read_json(SETTINGS_PATH, {"enabled": False})
+        self._overrides = _read_json(OVERRIDES_PATH, {})
         self._rebuild_allowlist()
         self._ready = True
 
@@ -184,15 +190,29 @@ class Plugin:
         except Exception as e:
             decky.logger.debug(f"Migration rebind: {e}")
 
+    def _is_active(self, vid_pid, entry, is_user):
+        # User entries store their active flag inline; built-in entries pick
+        # it up from the overrides map. Anything missing defaults to active.
+        if is_user:
+            return bool(entry.get("active", True))
+        return bool(self._overrides.get(vid_pid, True))
+
+    def _decorate(self, entry, is_user):
+        vp = (entry.get("vid_pid") or "").lower()
+        out = dict(entry)
+        out["vid_pid"] = vp
+        out["active"] = self._is_active(vp, entry, is_user)
+        return out
+
     def _rebuild_allowlist(self):
         ids = set()
         for entry in self._base_controllers:
             vp = (entry.get("vid_pid") or "").lower()
-            if VID_PID_RE.match(vp):
+            if VID_PID_RE.match(vp) and self._is_active(vp, entry, False):
                 ids.add(vp)
         for entry in self._user_controllers:
             vp = (entry.get("vid_pid") or "").lower()
-            if VID_PID_RE.match(vp):
+            if VID_PID_RE.match(vp) and self._is_active(vp, entry, True):
                 ids.add(vp)
         self._allowlist = ids
 
@@ -272,8 +292,8 @@ class Plugin:
             "enabled": self._settings.get("enabled", False),
             "disabled_deck": self._disabled,
             "connected": list(self._connected.values()),
-            "base_controllers": list(self._base_controllers),
-            "user_controllers": list(self._user_controllers),
+            "base_controllers": [self._decorate(e, False) for e in self._base_controllers],
+            "user_controllers": [self._decorate(e, True) for e in self._user_controllers],
             "pyudev_available": _PYUDEV_AVAILABLE,
             "pyudev_error": self._import_error,
             "ready": self._ready,
@@ -314,13 +334,76 @@ class Plugin:
             for entry in self._user_controllers:
                 if (entry.get("vid_pid") or "").lower() == vid_pid:
                     return {"ok": False, "error": "Already in your list."}
-            self._user_controllers.append({"vid_pid": vid_pid, "name": name})
+            self._user_controllers.append({"vid_pid": vid_pid, "name": name, "active": True})
             try:
                 _write_json(USER_CONTROLLERS_PATH, self._user_controllers)
             except OSError as e:
                 self._user_controllers.pop()
                 return {"ok": False, "error": f"Failed to save: {e}"}
             self._rebuild_allowlist()
+        return {"ok": True}
+
+    async def set_controller_active(self, vid_pid: str, active: bool) -> dict:
+        vid_pid = (vid_pid or "").strip().lower()
+        if not VID_PID_RE.match(vid_pid):
+            return {"ok": False, "error": "Invalid VID:PID."}
+        active = bool(active)
+        async with self._lock:
+            # User entry takes precedence if both exist (shouldn't happen, but safe).
+            user_idx = next(
+                (i for i, e in enumerate(self._user_controllers)
+                 if (e.get("vid_pid") or "").lower() == vid_pid),
+                None,
+            )
+            is_base = any(
+                (e.get("vid_pid") or "").lower() == vid_pid
+                for e in self._base_controllers
+            )
+            if user_idx is None and not is_base:
+                return {"ok": False, "error": "Controller is not in any list."}
+
+            if user_idx is not None:
+                prev = self._user_controllers[user_idx].get("active", True)
+                self._user_controllers[user_idx]["active"] = active
+                try:
+                    _write_json(USER_CONTROLLERS_PATH, self._user_controllers)
+                except OSError as e:
+                    self._user_controllers[user_idx]["active"] = prev
+                    return {"ok": False, "error": f"Failed to save: {e}"}
+            else:
+                prev = self._overrides.get(vid_pid)
+                # Only persist an override when it diverges from the default (True).
+                if active:
+                    self._overrides.pop(vid_pid, None)
+                else:
+                    self._overrides[vid_pid] = False
+                try:
+                    _write_json(OVERRIDES_PATH, self._overrides)
+                except OSError as e:
+                    if prev is None:
+                        self._overrides.pop(vid_pid, None)
+                    else:
+                        self._overrides[vid_pid] = prev
+                    return {"ok": False, "error": f"Failed to save: {e}"}
+
+            self._rebuild_allowlist()
+
+            if not active:
+                # Drop it from the tracked set and possibly rebind the Deck pad.
+                stale = [k for k, v in self._connected.items() if v.get("vid_pid") == vid_pid]
+                for k in stale:
+                    self._connected.pop(k, None)
+                if not self._connected and self._disabled:
+                    _rebind_deck()
+                    self._disabled = False
+            elif self._settings.get("enabled") and _PYUDEV_AVAILABLE:
+                # Re-enumerate so a currently-plugged-in controller that was just
+                # activated triggers the unbind without needing a replug.
+                try:
+                    context = pyudev.Context()
+                    await self._enumerate_existing(context)
+                except Exception as e:
+                    decky.logger.error(f"Re-enumerate after activate failed: {e}")
         return {"ok": True}
 
     async def remove_controller(self, vid_pid: str) -> dict:
@@ -338,12 +421,25 @@ class Plugin:
                     return {"ok": True}
         return {"ok": False, "error": "Not in your list. Built-in entries can't be removed."}
 
+    def _known_vid_pids(self):
+        known = set()
+        for e in self._base_controllers:
+            vp = (e.get("vid_pid") or "").lower()
+            if VID_PID_RE.match(vp):
+                known.add(vp)
+        for e in self._user_controllers:
+            vp = (e.get("vid_pid") or "").lower()
+            if VID_PID_RE.match(vp):
+                known.add(vp)
+        return known
+
     async def get_current_devices(self) -> list:
         out = []
         if not _PYUDEV_AVAILABLE:
             return out
         try:
             context = pyudev.Context()
+            known = self._known_vid_pids()
             seen = set()
             for device in context.list_devices(subsystem="input", ID_INPUT_JOYSTICK="1"):
                 parsed = _parse_product(device.get("PRODUCT"))
@@ -361,7 +457,10 @@ class Plugin:
                     "uniq": (device.get("UNIQ") or "").strip('"'),
                     "product": device.get("PRODUCT") or "",
                     "vid_pid": vid_pid,
-                    "is_supported": vid_pid in self._allowlist,
+                    # is_supported = known to the plugin (built-in or user entry).
+                    # is_active = will actually disable the Deck pad (in allowlist).
+                    "is_supported": vid_pid in known,
+                    "is_active": vid_pid in self._allowlist,
                     "is_internal": vid_pid == f"{DECK_VID}:{DECK_PID}",
                 })
         except Exception as e:

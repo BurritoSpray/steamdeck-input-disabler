@@ -14,7 +14,7 @@ import { callable, definePlugin } from "@decky/api";
 import { useCallback, useEffect, useState } from "react";
 import { FaCopy, FaGamepad, FaPlus, FaSyncAlt, FaTrash } from "react-icons/fa";
 
-type Controller = { vid_pid: string; name: string };
+type Controller = { vid_pid: string; name: string; active: boolean };
 
 type ConnectedDevice = {
   kernel: string;
@@ -29,6 +29,7 @@ type CurrentDevice = {
   product: string;
   vid_pid: string;
   is_supported: boolean;
+  is_active: boolean;
   is_internal: boolean;
 };
 
