@@ -563,24 +563,30 @@ function Content() {
 
       <PanelSection title="Supported Controllers">
         <PanelSectionRow>
-          <ButtonItem layout="below" icon={<FaListUl />} onClick={() => setView("list")}>
-            {`Manage controllers (${
-              state.user_controllers.length + state.base_controllers.length
-            })`}
-          </ButtonItem>
+          <DialogButton
+            style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}
+            onClick={() => setView("list")}
+          >
+            <FaListUl />
+            <span>
+              {`Manage controllers (${
+                state.user_controllers.length + state.base_controllers.length
+              })`}
+            </span>
+          </DialogButton>
         </PanelSectionRow>
       </PanelSection>
 
       <PanelSection title="Currently Detected">
         <PanelSectionRow>
-          <ButtonItem
-            layout="below"
-            icon={<FaSyncAlt />}
+          <DialogButton
+            style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}
             onClick={refreshDevices}
             disabled={refreshing}
           >
-            {refreshing ? "Scanning..." : "Refresh"}
-          </ButtonItem>
+            <FaSyncAlt />
+            <span>{refreshing ? "Scanning..." : "Refresh"}</span>
+          </DialogButton>
         </PanelSectionRow>
         {devices === null && (
           <PanelSectionRow>
