@@ -1,6 +1,7 @@
 {
   "name": "steamdeck-input-disabler",
   "author": "William Goyette",
+  "api_version": 1,
   "flags": ["root"],
   "publish": {
     "tags": ["utility", "controller", "fix", "bluetooth", "root"],

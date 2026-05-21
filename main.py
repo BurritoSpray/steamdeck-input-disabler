@@ -115,18 +115,30 @@ def _rebind_deck():
 
 
 class Plugin:
-    async def _main(self):
-        self._loop = asyncio.get_running_loop()
+    def __init__(self):
+        # Initialize every attribute synchronously so any RPC call (e.g. get_state)
+        # that arrives before _main has been scheduled by the event loop still
+        # sees a fully-formed Plugin instance instead of raising AttributeError.
+        self._loop = None
         self._lock = asyncio.Lock()
         self._observer = None
         self._connected = {}
         self._disabled = False
         self._import_error = _PYUDEV_IMPORT_ERROR
+        self._base_controllers = []
+        self._user_controllers = []
+        self._settings = {"enabled": False}
+        self._allowlist = set()
+        self._ready = False
+
+    async def _main(self):
+        self._loop = asyncio.get_running_loop()
 
         self._base_controllers = _read_json(BASE_CONTROLLERS_PATH, [])
         self._user_controllers = _read_json(USER_CONTROLLERS_PATH, [])
         self._settings = _read_json(SETTINGS_PATH, {"enabled": False})
         self._rebuild_allowlist()
+        self._ready = True
 
         decky.logger.info(
             f"steamdeck-input-disabler loaded "
@@ -264,6 +276,7 @@ class Plugin:
             "user_controllers": list(self._user_controllers),
             "pyudev_available": _PYUDEV_AVAILABLE,
             "pyudev_error": self._import_error,
+            "ready": self._ready,
         }
 
     async def set_enabled(self, enabled: bool) -> dict:

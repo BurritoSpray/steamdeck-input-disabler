@@ -40,6 +40,7 @@ type State = {
   user_controllers: Controller[];
   pyudev_available: boolean;
   pyudev_error: string | null;
+  ready?: boolean;
 };
 
 type Result = { ok: boolean; error?: string };
@@ -139,8 +140,12 @@ function Content() {
     try {
       const s = await getState();
       setState(s);
+      return s;
     } catch (e) {
-      toaster.toast({ title: "Plugin error", body: String(e) });
+      // Don't toast on the initial poll: the backend's _main may not have
+      // finished yet, in which case the RPC layer rejects. We just retry.
+      console.warn("[steamdeck-input-disabler] get_state failed:", e);
+      return null;
     }
   }, []);
 
@@ -159,7 +164,24 @@ function Content() {
   useEffect(() => {
     // Drop the toggle key persisted by versions <= 1.0.2; backend state is now authoritative.
     try { localStorage.removeItem("script_state"); } catch {}
-    refreshState();
+
+    let cancelled = false;
+    let attempt = 0;
+    const poll = async () => {
+      while (!cancelled) {
+        const s = await refreshState();
+        if (cancelled) return;
+        if (s && s.ready !== false) return;
+        // Backend isn't ready yet (or call failed). Back off and try again.
+        attempt += 1;
+        const delay = Math.min(2000, 150 * attempt);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    };
+    poll();
+    return () => {
+      cancelled = true;
+    };
   }, [refreshState]);
 
   const onToggle = async (next: boolean) => {
