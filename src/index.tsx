@@ -237,12 +237,16 @@ function ControllerListView({
   const total = state.user_controllers.length + state.base_controllers.length;
 
   return (
-    <>
+    <Focusable onCancel={onBack}>
       <PanelSection>
         <PanelSectionRow>
-          <ButtonItem layout="below" icon={<FaArrowLeft />} onClick={onBack}>
-            Back
-          </ButtonItem>
+          <DialogButton
+            style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}
+            onClick={onBack}
+          >
+            <FaArrowLeft />
+            <span>Back</span>
+          </DialogButton>
         </PanelSectionRow>
         <PanelSectionRow>
           <TextField
@@ -331,7 +335,7 @@ function ControllerListView({
           </ButtonItem>
         </PanelSectionRow>
       </PanelSection>
-    </>
+    </Focusable>
   );
 }
 
