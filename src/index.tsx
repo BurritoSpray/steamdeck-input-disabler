@@ -628,22 +628,34 @@ function Content() {
                 }
                 bottomSeparator="standard"
               />
-              <div style={{ display: "flex", gap: "4px", marginTop: "4px" }}>
-                <ButtonItem
-                  layout="below"
-                  icon={<FaCopy />}
+              <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+                <DialogButton
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
                   onClick={() => copyDeviceInfo(d)}
                 >
-                  Copy info
-                </ButtonItem>
+                  <FaCopy />
+                  <span>Copy info</span>
+                </DialogButton>
                 {!d.is_supported && !d.is_internal && (
-                  <ButtonItem
-                    layout="below"
-                    icon={<FaPlus />}
+                  <DialogButton
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "6px",
+                    }}
                     onClick={() => openAddModal(d.vid_pid, d.name)}
                   >
-                    Add to my list
-                  </ButtonItem>
+                    <FaPlus />
+                    <span>Add to my list</span>
+                  </DialogButton>
                 )}
               </div>
             </PanelSectionRow>
