@@ -48,6 +48,7 @@ type State = {
   enabled: boolean;
   disabled_deck: boolean;
   connected: ConnectedDevice[];
+  present_vid_pids: string[];
   base_controllers: Controller[];
   user_controllers: Controller[];
   pyudev_available: boolean;
@@ -146,10 +147,11 @@ function AddControllerModal({
   );
 }
 
-type FilterMode = "all" | "base" | "user" | "active" | "inactive";
+type FilterMode = "all" | "base" | "user" | "active" | "inactive" | "connected";
 
 const FILTERS: { id: FilterMode; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "connected", label: "Connected" },
   { id: "user", label: "Mine" },
   { id: "base", label: "Built-in" },
   { id: "active", label: "Active" },
@@ -162,21 +164,45 @@ function ControllerListView({
   onAdd,
   onToggleActive,
   onRemove,
+  onRefresh,
 }: {
   state: State;
   onBack: () => void;
   onAdd: () => void;
   onToggleActive: (vid_pid: string, next: boolean) => Promise<void>;
   onRemove: (vid_pid: string) => Promise<void>;
+  onRefresh: () => Promise<unknown>;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
 
-  type Row = Controller & { source: "user" | "base" };
+  // Poll while the list is open so the 'connected' tag follows plug/unplug
+  // events without the user having to back out.
+  useEffect(() => {
+    const id = setInterval(() => {
+      onRefresh();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [onRefresh]);
+
+  const presentSet = useMemo(
+    () => new Set((state.present_vid_pids || []).map((v) => v.toLowerCase())),
+    [state.present_vid_pids],
+  );
+
+  type Row = Controller & { source: "user" | "base"; connected: boolean };
   const rows = useMemo<Row[]>(() => {
     const all: Row[] = [
-      ...state.user_controllers.map((c) => ({ ...c, source: "user" as const })),
-      ...state.base_controllers.map((c) => ({ ...c, source: "base" as const })),
+      ...state.user_controllers.map((c) => ({
+        ...c,
+        source: "user" as const,
+        connected: presentSet.has(c.vid_pid.toLowerCase()),
+      })),
+      ...state.base_controllers.map((c) => ({
+        ...c,
+        source: "base" as const,
+        connected: presentSet.has(c.vid_pid.toLowerCase()),
+      })),
     ];
     const q = query.trim().toLowerCase();
     return all.filter((c) => {
@@ -184,10 +210,11 @@ function ControllerListView({
       if (filter === "user" && c.source !== "user") return false;
       if (filter === "active" && !c.active) return false;
       if (filter === "inactive" && c.active) return false;
+      if (filter === "connected" && !c.connected) return false;
       if (!q) return true;
       return c.name.toLowerCase().includes(q) || c.vid_pid.toLowerCase().includes(q);
     });
-  }, [state.user_controllers, state.base_controllers, query, filter]);
+  }, [state.user_controllers, state.base_controllers, presentSet, query, filter]);
 
   const total = state.user_controllers.length + state.base_controllers.length;
 
@@ -247,6 +274,14 @@ function ControllerListView({
                   <span style={{ opacity: 0.7 }}>
                     {c.source === "user" ? "yours" : "built-in"}
                   </span>
+                  {c.connected && (
+                    <>
+                      {" \u2014 "}
+                      <span style={{ color: "#5ec269", fontWeight: 600 }}>
+                        connected
+                      </span>
+                    </>
+                  )}
                 </span>
               }
               bottomSeparator="standard"
@@ -398,6 +433,7 @@ function Content() {
         onAdd={() => openAddModal()}
         onToggleActive={onToggleActive}
         onRemove={onRemove}
+        onRefresh={refreshState}
       />
     );
   }

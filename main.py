@@ -324,11 +324,32 @@ class Plugin:
         except Exception as e:
             decky.logger.error(f"Startup enumeration failed: {e}")
 
+    def _enumerate_present_vid_pids(self):
+        """Cheap snapshot of currently-plugged joystick-class devices' VID:PIDs.
+
+        Independent of plugin enabled-state and the observer, so the UI can show
+        connection tags even before the user turns the plugin on.
+        """
+        if not _PYUDEV_AVAILABLE:
+            return []
+        present = set()
+        try:
+            context = pyudev.Context()
+            for device in context.list_devices(subsystem="input", ID_INPUT_JOYSTICK="1"):
+                parsed = _parse_product(device.get("PRODUCT"))
+                if parsed is None:
+                    continue
+                present.add(f"{parsed[0]}:{parsed[1]}")
+        except Exception as e:
+            decky.logger.debug(f"enumerate_present failed: {e}")
+        return sorted(present)
+
     async def get_state(self) -> dict:
         return {
             "enabled": self._settings.get("enabled", False),
             "disabled_deck": self._disabled,
             "connected": list(self._connected.values()),
+            "present_vid_pids": self._enumerate_present_vid_pids(),
             "base_controllers": [self._decorate(e, False) for e in self._base_controllers],
             "user_controllers": [self._decorate(e, True) for e in self._user_controllers],
             "pyudev_available": _PYUDEV_AVAILABLE,
