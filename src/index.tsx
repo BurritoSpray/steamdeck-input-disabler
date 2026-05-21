@@ -158,19 +158,54 @@ const FILTERS: { id: FilterMode; label: string }[] = [
   { id: "inactive", label: "Inactive" },
 ];
 
+function ConfirmRemoveModal({
+  closeModal,
+  name,
+  vid_pid,
+  onConfirm,
+}: {
+  closeModal?: () => void;
+  name: string;
+  vid_pid: string;
+  onConfirm: () => Promise<void>;
+}) {
+  return (
+    <ConfirmModal
+      strTitle="Remove controller?"
+      strDescription={
+        <div>
+          <div>{name}</div>
+          <div style={{ opacity: 0.7, fontSize: "0.9em" }}>{vid_pid}</div>
+          <div style={{ marginTop: "8px" }}>
+            This will remove the entry from your list. You can add it back later.
+          </div>
+        </div>
+      }
+      strOKButtonText="Remove"
+      strCancelButtonText="Cancel"
+      bDestructiveWarning
+      onOK={async () => {
+        await onConfirm();
+        closeModal?.();
+      }}
+      onCancel={() => closeModal?.()}
+    />
+  );
+}
+
 function ControllerListView({
   state,
   onBack,
   onAdd,
   onToggleActive,
-  onRemove,
+  onRequestRemove,
   onRefresh,
 }: {
   state: State;
   onBack: () => void;
   onAdd: () => void;
   onToggleActive: (vid_pid: string, next: boolean) => Promise<void>;
-  onRemove: (vid_pid: string) => Promise<void>;
+  onRequestRemove: (vid_pid: string, name: string) => void;
   onRefresh: () => Promise<unknown>;
 }) {
   const [query, setQuery] = useState("");
@@ -345,7 +380,7 @@ function ControllerListView({
                       padding: "4px 8px",
                       flexShrink: 0,
                     }}
-                    onClick={() => onRemove(c.vid_pid)}
+                    onClick={() => onRequestRemove(c.vid_pid, c.name)}
                   >
                     <FaTrash />
                   </DialogButton>
@@ -479,7 +514,15 @@ function Content() {
         onBack={() => setView("main")}
         onAdd={() => openAddModal()}
         onToggleActive={onToggleActive}
-        onRemove={onRemove}
+        onRequestRemove={(vid_pid, name) =>
+          showModal(
+            <ConfirmRemoveModal
+              vid_pid={vid_pid}
+              name={name}
+              onConfirm={() => onRemove(vid_pid)}
+            />,
+          )
+        }
         onRefresh={refreshState}
       />
     );
