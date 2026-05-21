@@ -320,18 +320,31 @@ function ControllerListView({
               }
               bottomSeparator="standard"
               padding="compact"
+              childrenContainerWidth="max"
             >
               <Focusable
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                  gap: "12px",
+                }}
                 flow-children="horizontal"
               >
-                <Toggle
-                  value={c.active}
-                  onChange={(next) => onToggleActive(c.vid_pid, next)}
-                />
+                <div style={{ flexShrink: 0 }}>
+                  <Toggle
+                    value={c.active}
+                    onChange={(next) => onToggleActive(c.vid_pid, next)}
+                  />
+                </div>
                 {c.source === "user" && (
                   <DialogButton
-                    style={{ minWidth: 0, padding: "4px 10px" }}
+                    style={{
+                      minWidth: 0,
+                      width: "36px",
+                      padding: "4px 8px",
+                      flexShrink: 0,
+                    }}
                     onClick={() => onRemove(c.vid_pid)}
                   >
                     <FaTrash />
