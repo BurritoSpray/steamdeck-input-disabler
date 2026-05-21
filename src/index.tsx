@@ -69,6 +69,13 @@ const getCurrentDevices = callable<[], CurrentDevice[]>("get_current_devices");
 
 const VID_PID_PATTERN = /^[0-9a-f]{4}:[0-9a-f]{4}$/i;
 
+// Steam unmounts the QAM panel content while a modal is on screen and remounts
+// it from scratch when the modal closes. Keep the current view at module scope
+// so the fresh Content instance can restore it instead of always landing back
+// on the main panel.
+type ViewName = "main" | "list";
+let persistedView: ViewName = "main";
+
 function formatSnippet(d: CurrentDevice): string {
   return [
     "```",
@@ -125,6 +132,7 @@ function AddControllerModal({
       strCancelButtonText="Cancel"
       onOK={submit}
       onCancel={() => closeModal?.()}
+      onEscKeypress={() => closeModal?.()}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
         <TextField
@@ -189,6 +197,7 @@ function ConfirmRemoveModal({
         closeModal?.();
       }}
       onCancel={() => closeModal?.()}
+      onEscKeypress={() => closeModal?.()}
     />
   );
 }
@@ -403,7 +412,11 @@ function Content() {
   const [state, setState] = useState<State | null>(null);
   const [devices, setDevices] = useState<CurrentDevice[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [view, setView] = useState<"main" | "list">("main");
+  const [view, setViewState] = useState<ViewName>(() => persistedView);
+  const setView = useCallback((v: ViewName) => {
+    persistedView = v;
+    setViewState(v);
+  }, []);
 
   const refreshState = useCallback(async () => {
     try {
