@@ -29,12 +29,11 @@
         //Preliminary "All-in-one" setup task
         {
             "label": "setup",
-            "detail": "Set up depedencies, pnpm and update Decky Frontend Library.",
+            "detail": "Set up dependencies and pnpm.",
             "dependsOrder": "sequence",
             "dependsOn": [
                 "depsetup",
-                "pnpmsetup",
-                "updatefrontendlib"
+                "pnpmsetup"
             ],
             "problemMatcher": []
         },
@@ -126,15 +125,6 @@
             "problemMatcher": []
         },
         //GENERAL TASKS
-        //Update Decky Frontend Library, aka DFL
-        {
-            "label": "updatefrontendlib",
-            "type": "shell",
-            "group": "build",
-            "detail": "Update deck-frontend-lib aka DFL",
-            "command": "pnpm update decky-frontend-lib --latest",
-            "problemMatcher": []
-        },
         //Used chmod plugins folder to allow copy-over of files
         {
             "label": "chmodplugins",

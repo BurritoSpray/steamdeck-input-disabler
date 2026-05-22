@@ -1,0 +1,51 @@
+<!-- Concept D, wide variant for the Decky store banner.
+     16:9 aspect at 1600x900. Same composition idea: slashed Steam Deck on the
+     left, three external input devices on the right, all bright green. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" rx="48" fill="url(#bg)"/>
+
+  <!-- Steam Deck silhouette, occupying the left 55%, vertically centred.
+       The Deck path is drawn in a 200x100 viewBox, so scale 5.0 makes it
+       1000 wide by 500 tall. Positioned at (60, 200) -> spans x=60-1060, y=200-700. -->
+  <g transform="translate(60 200) scale(5.0)" color="#cbd5e1">
+    <path d="M 22 14 Q 22 6 30 6 L 170 6 Q 178 6 178 14 L 178 56
+             Q 178 70 168 78 Q 158 86 144 86 Q 134 86 128 80 L 124 76
+             Q 118 70 110 70 L 90 70 Q 82 70 76 76 L 72 80
+             Q 66 86 56 86 Q 42 86 32 78 Q 22 70 22 56 Z" fill="currentColor"/>
+    <rect x="58" y="16" width="84" height="44" rx="4" fill="#0b1220"/>
+    <circle cx="38" cy="30" r="7" fill="#0b1220"/>
+    <circle cx="38" cy="30" r="4" fill="currentColor"/>
+    <circle cx="162" cy="30" r="7" fill="#0b1220"/>
+    <circle cx="162" cy="30" r="4" fill="currentColor"/>
+    <circle cx="38" cy="58" r="8" fill="#0b1220"/>
+    <circle cx="162" cy="58" r="8" fill="#0b1220"/>
+  </g>
+
+  <!-- Diagonal slash across the Deck, with a dark outline so it pops cleanly -->
+  <line x1="120" y1="680" x2="1000" y2="240" stroke="#0f172a" stroke-width="80" stroke-linecap="round"/>
+  <line x1="120" y1="680" x2="1000" y2="240" stroke="#ef4444" stroke-width="56" stroke-linecap="round"/>
+
+  <!-- Three external devices in the right portion, stacked vertically and
+       evenly spaced. Centred around x=1340 (the right-half centerline). -->
+
+  <!-- Gamepad, top. FaGamepad path is 512x512 in source; scale 0.45 -> 230x230. -->
+  <g transform="translate(1185 100) scale(0.45)" fill="#5ec269">
+    <path d="M480.07 96H32c-17.67 0-32 14.33-32 32v256c0 17.67 14.33 32 32 32h448.07c17.67 0 32-14.33 32-32V128c-.07-17.67-14.4-32-32-32zM176 280c0 4.42-3.58 8-8 8h-40v40c0 4.42-3.58 8-8 8H88c-4.42 0-8-3.58-8-8v-40H40c-4.42 0-8-3.58-8-8v-32c0-4.42 3.58-8 8-8h40v-40c0-4.42 3.58-8 8-8h32c4.42 0 8 3.58 8 8v40h40c4.42 0 8 3.58 8 8v32zm168 56c-22.09 0-40-17.91-40-40s17.91-40 40-40 40 17.91 40 40-17.91 40-40 40zm96-80c-22.09 0-40-17.91-40-40s17.91-40 40-40 40 17.91 40 40-17.91 40-40 40z"/>
+  </g>
+
+  <!-- Keyboard, middle. FaKeyboard is 576x512 in source; scale 0.40 -> 230x205. -->
+  <g transform="translate(1185 380) scale(0.40)" fill="#5ec269">
+    <path d="M528 64H48C21.49 64 0 85.49 0 112v288c0 26.51 21.49 48 48 48h480c26.51 0 48-21.49 48-48V112c0-26.51-21.49-48-48-48zm8 336c0 4.42-3.58 8-8 8H48c-4.42 0-8-3.58-8-8V112c0-4.42 3.58-8 8-8h480c4.42 0 8 3.58 8 8v288zM170 270v-28c0-3.31-2.69-6-6-6h-28c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h28c3.31 0 6-2.69 6-6zm96 0v-28c0-3.31-2.69-6-6-6h-104c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h104c3.31 0 6-2.69 6-6zm96 0v-28c0-3.31-2.69-6-6-6h-104c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h104c3.31 0 6-2.69 6-6zm96 0v-28c0-3.31-2.69-6-6-6h-104c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h104c3.31 0 6-2.69 6-6zm-336 80v-28c0-3.31-2.69-6-6-6h-44c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h44c3.31 0 6-2.69 6-6zm320 0v-28c0-3.31-2.69-6-6-6h-260c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h260c3.31 0 6-2.69 6-6zm56 0v-28c0-3.31-2.69-6-6-6h-28c-3.31 0-6 2.69-6 6v28c0 3.31 2.69 6 6 6h28c3.31 0 6-2.69 6-6z"/>
+  </g>
+
+  <!-- Mouse, bottom. FaMouse is 384x512 in source; scale 0.40 -> 154x205. -->
+  <g transform="translate(1223 635) scale(0.40)" fill="#5ec269">
+    <path d="M0 352a160 160 0 0 0 160 160h64a160 160 0 0 0 160-160V224H0zm176-128h32V0h-32a160 160 0 0 0-160 160v32h160zm48-224v224h160v-32A160 160 0 0 0 224 0z"/>
+  </g>
+</svg>

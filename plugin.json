@@ -1,10 +1,11 @@
 {
   "name": "steamdeck-input-disabler",
   "author": "William Goyette",
+  "api_version": 1,
   "flags": ["root"],
   "publish": {
-    "tags": ["utility", "controller", "fix", "bluetooth", "root"],
-    "description": "A plugin that lets you disable the steamdeck gamepad to prevent bugs with in game controller order and emulators not picking up the right controller.",
-    "image": "https://gitlab.burritospray.com/BurritoSpray/docked-steamdeck-input-disabler/-/blob/main/assets/logo.png"
+    "tags": ["utility", "controller", "keyboard", "mouse", "fix", "bluetooth", "root"],
+    "description": "Disables the Steam Deck's built-in gamepad when a supported external controller, keyboard or mouse is connected. Includes a user-extensible allowlist with per-controller toggles, a controller ID extractor, and an opt-in keyboard/mouse mode covering USB, Bluetooth and 2.4 GHz dongles.",
+    "image": "https://raw.githubusercontent.com/BurritoSpray/steamdeck-input-disabler/main/assets/logo.png"
   }
 }
