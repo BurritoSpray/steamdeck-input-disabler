@@ -11,10 +11,9 @@ import {
   ToggleField,
   showModal,
   staticClasses,
-  toaster,
 } from "@decky/ui";
-import { callable, definePlugin } from "@decky/api";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { callable, definePlugin, toaster } from "@decky/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FaArrowLeft,
   FaCopy,
@@ -46,6 +45,7 @@ type CurrentDevice = {
 
 type State = {
   enabled: boolean;
+  kbm_enabled: boolean;
   disabled_deck: boolean;
   connected: ConnectedDevice[];
   present_vid_pids: string[];
@@ -60,6 +60,7 @@ type Result = { ok: boolean; error?: string };
 
 const getState = callable<[], State>("get_state");
 const setEnabled = callable<[enabled: boolean], Result>("set_enabled");
+const setKbmEnabled = callable<[enabled: boolean], Result>("set_kbm_enabled");
 const addController = callable<[vid_pid: string, name: string], Result>("add_controller");
 const removeController = callable<[vid_pid: string], Result>("remove_controller");
 const setControllerActive = callable<[vid_pid: string, active: boolean], Result>(
@@ -466,8 +467,73 @@ function Content() {
     };
   }, [refreshState]);
 
+  // Light polling while the main panel is visible so the description and the
+  // disabled_deck status follow plug/unplug events without a manual refresh.
+  // Same visibility-gated pattern as the controller list.
+  useEffect(() => {
+    if (view !== "main") return;
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = setInterval(refreshState, 2000);
+    };
+    const stop = () => {
+      if (id === null) return;
+      clearInterval(id);
+      id = null;
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (document.visibilityState === "visible") start();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
+  }, [view, refreshState]);
+
+  // Toast on disabled_deck transitions. We track the previous value across
+  // renders via a ref and skip the initial sighting so opening the panel
+  // while the Deck pad is already disabled doesn't fire a stale toast.
+  const prevDisabledRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    const next = state.disabled_deck;
+    const prev = prevDisabledRef.current;
+    prevDisabledRef.current = next;
+    if (prev === null) return; // first observation, no transition
+    if (prev === next) return;
+    // toaster.toast can throw on certain loader versions if the toaster API
+    // isn't fully wired up. Don't take down the panel for a notification.
+    try {
+      if (next) {
+        toaster.toast({
+          title: "Deck pad disabled",
+          body: "External device connected.",
+        });
+      } else {
+        toaster.toast({
+          title: "Deck pad enabled",
+          body: "External device disconnected.",
+        });
+      }
+    } catch (e) {
+      console.warn("[steamdeck-input-disabler] toaster.toast failed:", e);
+    }
+  }, [state]);
+
   const onToggle = async (next: boolean) => {
     const res = await setEnabled(next);
+    if (!res.ok) {
+      toaster.toast({ title: "Couldn't change state", body: res.error || "Unknown error" });
+    }
+    await refreshState();
+  };
+
+  const onKbmToggle = async (next: boolean) => {
+    const res = await setKbmEnabled(next);
     if (!res.ok) {
       toaster.toast({ title: "Couldn't change state", body: res.error || "Unknown error" });
     }
@@ -557,6 +623,19 @@ function Content() {
                 : `Unavailable: ${state.pyudev_error || "pyudev not installed"}`
             }
             onChange={onToggle}
+          />
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ToggleField
+            checked={state.kbm_enabled}
+            disabled={!state.pyudev_available || !state.enabled}
+            label="Enable keyboard and mouse support"
+            description={
+              !state.enabled
+                ? "Turn the plugin on first."
+                : "Also disable the Deck pad when an external keyboard or mouse is connected."
+            }
+            onChange={onKbmToggle}
           />
         </PanelSectionRow>
       </PanelSection>

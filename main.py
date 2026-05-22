@@ -141,7 +141,9 @@ class Plugin:
 
         self._base_controllers = _read_json(BASE_CONTROLLERS_PATH, [])
         self._user_controllers = _read_json(USER_CONTROLLERS_PATH, [])
-        self._settings = _read_json(SETTINGS_PATH, {"enabled": False})
+        self._settings = _read_json(SETTINGS_PATH, {"enabled": False, "kbm_enabled": False})
+        # Make sure new settings fields exist for users upgrading from older versions.
+        self._settings.setdefault("kbm_enabled", False)
         self._overrides = _read_json(OVERRIDES_PATH, {})
         self._rebuild_allowlist()
 
@@ -264,6 +266,63 @@ class Plugin:
         decky.logger.info("pyudev observer started")
         await self._enumerate_existing(context)
 
+    def _is_external_input(self, device):
+        """True only if we can prove this input device is on an external peripheral.
+
+        Walks the parent chain looking for either a non-Valve USB vendor or a
+        bluetooth-subsystem ancestor. Defaults to internal when neither is
+        found, so unrecognised internal buses (i2c, ACPI, virtual) never
+        trigger an unbind by accident. Wrapped in a defensive try/except so
+        a weird device can never crash the enumerate sweep.
+        """
+        try:
+            chain = []
+            node = device
+            external_via_usb = None  # None=undecided, True/False once known
+            seen_bluetooth = False
+            for _ in range(32):
+                if node is None:
+                    break
+                subsys = None
+                try:
+                    subsys = node.subsystem
+                except Exception:
+                    pass
+                sys_name = getattr(node, "sys_name", "?")
+                vendor = None
+                try:
+                    attrs = getattr(node, "attributes", None)
+                    if attrs is not None:
+                        v = attrs.get("idVendor")
+                        if v is not None:
+                            vendor = v.decode() if isinstance(v, bytes) else str(v)
+                            vendor = vendor.strip().lower()
+                except Exception:
+                    pass
+                chain.append(f"{subsys}/{sys_name}{('@'+vendor) if vendor else ''}")
+                if subsys == "bluetooth":
+                    seen_bluetooth = True
+                if vendor and external_via_usb is None:
+                    external_via_usb = (vendor != DECK_VID)
+                try:
+                    node = node.parent
+                except Exception:
+                    node = None
+            decky.logger.debug(
+                f"kbm classify {getattr(device, 'sys_name', '?')}: "
+                f"chain={' -> '.join(chain)} ext_via_usb={external_via_usb} bt={seen_bluetooth}"
+            )
+            if external_via_usb is True:
+                return True
+            if external_via_usb is False:
+                return False
+            return seen_bluetooth
+        except Exception as e:
+            decky.logger.error(
+                f"_is_external_input crashed on {getattr(device, 'sys_name', '?')}: {e}"
+            )
+            return False
+
     async def _stop_observer(self):
         if self._observer is None:
             return
@@ -284,17 +343,53 @@ class Plugin:
         async with self._lock:
             self._handle_device_event(device.action, device)
 
+    def _classify_device(self, device):
+        """Return ('controller'|'kbm', vid_pid) if this event is relevant, else None.
+
+        Controllers must be in the allowlist; KB/M must be external. Returns
+        None if neither condition holds or the device isn't of a tracked kind.
+
+        A single USB mouse creates ~7 input subdevices in udev (event*, mouse*,
+        plus one inputN per HID interface). We only act on the inputN nodes
+        themselves and skip their event*/mouse* children so a single physical
+        device produces a single tracked entry per HID interface.
+        """
+        # Filter out event* / mouse* / js* subdevices. They share the same
+        # ID_INPUT_* flags as their parent inputN, so handling both would
+        # double or triple count the same hardware.
+        sys_name = getattr(device, "sys_name", "") or ""
+        if not sys_name.startswith("input"):
+            return None
+
+        is_joystick = device.get("ID_INPUT_JOYSTICK") == "1"
+        is_keyboard = device.get("ID_INPUT_KEYBOARD") == "1"
+        is_mouse = device.get("ID_INPUT_MOUSE") == "1"
+        parsed = _parse_product(device.get("PRODUCT"))
+        vid_pid = f"{parsed[0]}:{parsed[1]}" if parsed else None
+
+        if is_joystick and vid_pid and vid_pid in self._allowlist:
+            return "controller", vid_pid
+
+        if (is_keyboard or is_mouse) and self._settings.get("kbm_enabled"):
+            # Joystick-class devices often also flag keyboard/mouse capability;
+            # don't double-count those.
+            if is_joystick:
+                return None
+            # Skip the Deck's internal hub and Steam's emulated input devices.
+            if vid_pid and vid_pid == f"{DECK_VID}:{DECK_PID}":
+                return None
+            if self._is_external_input(device):
+                return "kbm", vid_pid or "unknown"
+
+        return None
+
     def _handle_device_event(self, action, device):
         if not self._settings.get("enabled"):
             return
-        if device.get("ID_INPUT_JOYSTICK") != "1":
+        classified = self._classify_device(device)
+        if classified is None:
             return
-        parsed = _parse_product(device.get("PRODUCT"))
-        if parsed is None:
-            return
-        vid_pid = f"{parsed[0]}:{parsed[1]}"
-        if vid_pid not in self._allowlist:
-            return
+        kind, vid_pid = classified
         kernel = device.sys_name
         if action == "add":
             if kernel in self._connected:
@@ -303,26 +398,38 @@ class Plugin:
                 "kernel": kernel,
                 "vid_pid": vid_pid,
                 "name": (device.get("NAME") or "").strip('"'),
+                "kind": kind,
             }
-            decky.logger.info(f"Allowed controller added: {kernel} ({vid_pid})")
+            decky.logger.info(f"{kind} added: {kernel} ({vid_pid})")
             if not self._disabled:
                 _unbind_deck()
                 self._disabled = True
         elif action == "remove":
             if kernel not in self._connected:
                 return
-            self._connected.pop(kernel)
-            decky.logger.info(f"Allowed controller removed: {kernel} ({vid_pid})")
+            entry = self._connected.pop(kernel)
+            decky.logger.info(f"{entry.get('kind', 'device')} removed: {kernel} ({vid_pid})")
             if not self._connected and self._disabled:
                 _rebind_deck()
                 self._disabled = False
 
     async def _enumerate_existing(self, context):
+        # Sweep all input devices, not just joysticks, so KB/M get picked up too.
+        # Per-device try/except so one weird device can't abort the rest of the
+        # sweep and leave us with an inconsistent _connected set.
         try:
-            for device in context.list_devices(subsystem="input", ID_INPUT_JOYSTICK="1"):
-                self._handle_device_event("add", device)
+            iterator = context.list_devices(subsystem="input")
         except Exception as e:
-            decky.logger.error(f"Startup enumeration failed: {e}")
+            decky.logger.error(f"Failed to list input devices: {e}")
+            return
+        for device in iterator:
+            try:
+                self._handle_device_event("add", device)
+            except Exception as e:
+                decky.logger.error(
+                    f"Enumeration: device {getattr(device, 'sys_name', '?')} "
+                    f"raised {type(e).__name__}: {e}"
+                )
 
     def _enumerate_present_vid_pids(self):
         """Cheap snapshot of currently-plugged joystick-class devices' VID:PIDs.
@@ -347,6 +454,7 @@ class Plugin:
     async def get_state(self) -> dict:
         return {
             "enabled": self._settings.get("enabled", False),
+            "kbm_enabled": self._settings.get("kbm_enabled", False),
             "disabled_deck": self._disabled,
             "connected": list(self._connected.values()),
             "present_vid_pids": self._enumerate_present_vid_pids(),
@@ -376,6 +484,38 @@ class Plugin:
                     _rebind_deck()
                     self._disabled = False
                 self._connected.clear()
+        return {"ok": True}
+
+    async def set_kbm_enabled(self, enabled: bool) -> dict:
+        enabled = bool(enabled)
+        async with self._lock:
+            was = self._settings.get("kbm_enabled", False)
+            if was == enabled:
+                return {"ok": True}
+            self._settings["kbm_enabled"] = enabled
+            try:
+                _write_json(SETTINGS_PATH, self._settings)
+            except OSError as e:
+                self._settings["kbm_enabled"] = was
+                return {"ok": False, "error": f"Failed to write settings: {e}"}
+
+            # Only act on currently-connected state if the plugin is active.
+            if self._settings.get("enabled") and _PYUDEV_AVAILABLE:
+                if not enabled:
+                    # Drop tracked KB/M entries and possibly rebind.
+                    stale = [k for k, v in self._connected.items() if v.get("kind") == "kbm"]
+                    for k in stale:
+                        self._connected.pop(k, None)
+                    if not self._connected and self._disabled:
+                        _rebind_deck()
+                        self._disabled = False
+                else:
+                    # Re-enumerate so a plugged-in KB/M takes effect immediately.
+                    try:
+                        context = pyudev.Context()
+                        await self._enumerate_existing(context)
+                    except Exception as e:
+                        decky.logger.error(f"Re-enumerate after kbm enable failed: {e}")
         return {"ok": True}
 
     async def add_controller(self, vid_pid: str, name: str) -> dict:
