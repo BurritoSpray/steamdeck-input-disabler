@@ -628,10 +628,20 @@ function Content() {
                 }
                 bottomSeparator="standard"
               />
-              <div style={{ display: "flex", gap: "6px", marginTop: "4px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "6px",
+                  marginTop: "4px",
+                  width: "100%",
+                }}
+              >
                 <DialogButton
                   style={{
-                    flex: 1,
+                    flex: "1 1 0",
+                    minWidth: 0,
+                    padding: "4px 8px",
+                    fontSize: "0.85em",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -645,7 +655,10 @@ function Content() {
                 {!d.is_supported && !d.is_internal && (
                   <DialogButton
                     style={{
-                      flex: 1,
+                      flex: "1 1 0",
+                      minWidth: 0,
+                      padding: "4px 8px",
+                      fontSize: "0.85em",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
