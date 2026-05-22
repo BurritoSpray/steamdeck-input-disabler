@@ -1,7 +1,7 @@
 {
   "name": "steamdeck-input-disabler",
-  "version": "1.1.0",
-  "description": "Disables the Steam Deck's built-in gamepad when a supported external controller connects. Includes a user-extensible allowlist and a controller ID extractor.",
+  "version": "1.2.0",
+  "description": "Disables the Steam Deck's built-in gamepad when a supported external controller, keyboard or mouse is connected. Includes a user-extensible allowlist with per-controller toggles and a controller ID extractor.",
   "type": "module",
   "scripts": {
     "build": "rollup -c",
@@ -17,6 +17,8 @@
     "plugin",
     "bluetooth",
     "controller",
+    "keyboard",
+    "mouse",
     "steam-deck",
     "deck"
   ],

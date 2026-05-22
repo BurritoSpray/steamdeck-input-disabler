@@ -4,8 +4,8 @@
   "api_version": 1,
   "flags": ["root"],
   "publish": {
-    "tags": ["utility", "controller", "fix", "bluetooth", "root"],
-    "description": "Disables the Steam Deck's built-in gamepad when a supported external controller connects. Includes a user-extensible allowlist (so you can add any controller) and a controller ID extractor to help report unsupported pads.",
+    "tags": ["utility", "controller", "keyboard", "mouse", "fix", "bluetooth", "root"],
+    "description": "Disables the Steam Deck's built-in gamepad when a supported external controller, keyboard or mouse is connected. Includes a user-extensible allowlist with per-controller toggles, a controller ID extractor, and an opt-in keyboard/mouse mode covering USB, Bluetooth and 2.4 GHz dongles.",
     "image": "https://raw.githubusercontent.com/BurritoSpray/steamdeck-input-disabler/main/assets/logo.png"
   }
 }
