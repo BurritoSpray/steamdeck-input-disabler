@@ -6,7 +6,7 @@ Useful for couch co-op and emulators where the Deck's internal pad otherwise get
 
 ## Features
 
-- **Supported controllers list.** Ships with PlayStation 4/5, Xbox 360/One/Series, Nintendo Switch Pro / Wii / Joy-Con, 8BitDo, Stadia, and a few more out of the box.
+- **Supported controllers list.** Ships with PlayStation 4/5, Xbox 360/One/Series, Nintendo Switch Pro / Wii / Joy-Con, 8BitDo, Stadia, the 2026 Steam Controller (wired, Bluetooth or through its wireless puck), and a few more out of the box.
 - **Add your own.** Any controller can be added by VID:PID — no need to wait for an update.
 - **Manage controllers sub-view.** A dedicated, searchable list with filters (All / Connected / Mine / Built-in / Active / Inactive), so picking the right Xbox model out of ten near-identical entries is a five-second job.
 - **Per-controller active toggle.** Disable any single entry without removing it. Useful if you only want a specific controller to take over from the Deck pad.
@@ -28,6 +28,8 @@ If your controller doesn't trigger anything, open **Currently Detected**, find y
 ## How it works
 
 The plugin watches `udev` for `input` events via `pyudev`. When a device whose VID:PID is in your active allowlist connects (or, with the KB/M option, any external keyboard or mouse), the plugin writes the Steam Deck's USB HID interface paths to `/sys/bus/usb/drivers/usbhid/unbind`. On disconnect, once nothing tracked remains, it writes them back to `/sys/bus/usb/drivers/usbhid/bind`. No `/etc/udev/rules.d/` files are installed — everything runs inside the plugin process.
+
+The 2026 Steam Controller is handled differently, because it never appears as an `input` joystick while Steam is running: Steam reads it through `hidraw`, and the kernel's `hid-steam` driver only creates its input device while nothing has the `hidraw` node open. The plugin watches `hidraw` nodes instead. A wired (`28de:1302`) or Bluetooth (`28de:1303`) controller counts as connected while its node exists. The wireless puck (`28de:1304`) is plugged in whether or not a controller is on, so the plugin reads each of its four controller slots alongside Steam (every `hidraw` reader gets every report) and follows the connect and disconnect events and input reports. The puck's pogo-pin interface is skipped.
 
 ## Credits
 
