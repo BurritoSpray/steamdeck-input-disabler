@@ -22,5 +22,8 @@
   { "vid_pid": "2dc8:6101", "name": "8BitDo SN30 Pro" },
   { "vid_pid": "2dc8:6003", "name": "8BitDo Pro 2" },
   { "vid_pid": "2dc8:3106", "name": "8BitDo Ultimate Wireless" },
-  { "vid_pid": "18d1:9400", "name": "Google Stadia Controller" }
+  { "vid_pid": "18d1:9400", "name": "Google Stadia Controller" },
+  { "vid_pid": "28de:1302", "name": "Steam Controller (2026, wired)" },
+  { "vid_pid": "28de:1303", "name": "Steam Controller (2026, Bluetooth)" },
+  { "vid_pid": "28de:1304", "name": "Steam Controller (2026, wireless puck)" }
 ]

@@ -33,6 +33,116 @@ DECK_PID = "1205"
 
 VID_PID_RE = re.compile(r"^[0-9a-f]{4}:[0-9a-f]{4}$")
 
+# The 2026 Steam Controller never shows up as an evdev joystick while Steam
+# runs: Steam reads it through hidraw, and hid-steam only registers its input
+# device while no hidraw client is open. So these are watched as hidraw nodes.
+# IDs from the kernel's hid-ids.h.
+STEAM_2026_WIRED = "28de:1302"
+STEAM_2026_BLE = "28de:1303"
+STEAM_2026_PUCK = "28de:1304"
+STEAM_2026_IDS = (STEAM_2026_WIRED, STEAM_2026_BLE, STEAM_2026_PUCK)
+
+# The puck is plugged in whether or not a controller is on, so each of its
+# four slot interfaces is read to learn whether a controller is connected.
+# Report layout from hid-steam.c (Ibex).
+REPORT_ID_INPUT = 0x42
+REPORT_ID_BATTERY = 0x43
+REPORT_ID_INPUT2 = 0x45
+REPORT_ID_WIRELESS_EVENT = 0x79
+WIRELESS_EVENT_DISCONNECT = 1
+WIRELESS_EVENT_CONNECT = 2
+# Report sizes include the report ID byte.
+SLOT_PRESENCE_REPORTS = {REPORT_ID_INPUT: 54, REPORT_ID_INPUT2: 46, REPORT_ID_BATTERY: 15}
+# The puck's stripped-down pogo pin interface; its one collection has this usage.
+PUCK_POGO_USAGE = 0xFF000002
+
+
+def _slot_event(report):
+    """True if this puck slot report means a controller is connected, False if
+    it means disconnected, None if it says neither."""
+    if not report:
+        return None
+    rid = report[0]
+    if rid == REPORT_ID_WIRELESS_EVENT and len(report) == 2:
+        if report[1] == WIRELESS_EVENT_CONNECT:
+            return True
+        if report[1] == WIRELESS_EVENT_DISCONNECT:
+            return False
+        return None
+    if SLOT_PRESENCE_REPORTS.get(rid) == len(report):
+        return True
+    return None
+
+
+def _first_collection_usage(rdesc):
+    """Usage page and usage (page << 16 | usage) of the first collection in a
+    HID report descriptor, or None."""
+    page = 0
+    usage = None
+    i = 0
+    while i < len(rdesc):
+        prefix = rdesc[i]
+        if prefix == 0xFE:  # long item: size byte, tag byte, data
+            if i + 1 >= len(rdesc):
+                return None
+            i += 3 + rdesc[i + 1]
+            continue
+        size = (0, 1, 2, 4)[prefix & 0x03]
+        value = int.from_bytes(rdesc[i + 1:i + 1 + size], "little")
+        tag = prefix & 0xFC
+        if tag == 0x04:  # Usage Page
+            page = value
+        elif tag == 0x08:  # Usage
+            usage = value if size == 4 else (page << 16) | value
+        elif tag == 0xA0:  # Collection
+            return usage
+        i += 1 + size
+    return None
+
+
+def _parse_hid_id(hid_id):
+    """'0003:000028DE:00001304' -> '28de:1304', else None."""
+    parts = (hid_id or "").split(":")
+    if len(parts) != 3:
+        return None
+    try:
+        return f"{int(parts[1], 16):04x}:{int(parts[2], 16):04x}"
+    except ValueError:
+        return None
+
+
+def _steam_2026_info(device):
+    """Describe a hidraw node of a 2026 Steam Controller, or None.
+
+    Works whether hid-steam or hid-generic is bound: hid-steam's client device
+    (the hidraw Steam opens) copies the real interface's IDs and descriptor.
+    """
+    try:
+        hid = device.find_parent("hid")
+    except Exception:
+        hid = None
+    if hid is None:
+        return None
+    vid_pid = _parse_hid_id(hid.get("HID_ID"))
+    if vid_pid not in STEAM_2026_IDS:
+        return None
+    if vid_pid == STEAM_2026_PUCK:
+        try:
+            with open(os.path.join(hid.sys_path, "report_descriptor"), "rb") as f:
+                rdesc = f.read()
+        except OSError as e:
+            decky.logger.debug(f"report_descriptor for {device.sys_name}: {e}")
+            return None
+        if _first_collection_usage(rdesc) == PUCK_POGO_USAGE:
+            return None
+    return {
+        "vid_pid": vid_pid,
+        "name": hid.get("HID_NAME") or "Steam Controller (2026)",
+        "uniq": hid.get("HID_UNIQ") or "",
+        "product": hid.get("HID_ID") or "",
+        "devnode": device.device_node,
+    }
+
 
 def _read_json(path, default):
     try:
@@ -127,6 +237,10 @@ class Plugin:
         self._lock = asyncio.Lock()
         self._observer = None
         self._connected = {}
+        # 2026 Steam Controller hidraw nodes, keyed by kernel name (hidrawN):
+        # the _steam_2026_info dict plus "connected" and "fd". fd is set only
+        # for puck slots, which are read to follow the connection state.
+        self._hidraw = {}
         self._disabled = False
         self._import_error = _PYUDEV_IMPORT_ERROR
         self._base_controllers = []
@@ -261,6 +375,7 @@ class Plugin:
         context = pyudev.Context()
         monitor = pyudev.Monitor.from_netlink(context)
         monitor.filter_by(subsystem="input")
+        monitor.filter_by(subsystem="hidraw")
         self._observer = pyudev.MonitorObserver(monitor, callback=self._on_udev_event_threadsafe)
         self._observer.start()
         decky.logger.info("pyudev observer started")
@@ -331,6 +446,8 @@ class Plugin:
         except Exception as e:
             decky.logger.error(f"Failed to stop observer: {e}")
         self._observer = None
+        for kernel in list(self._hidraw):
+            self._close_hidraw(kernel)
         decky.logger.info("pyudev observer stopped")
 
     def _on_udev_event_threadsafe(self, device):
@@ -367,6 +484,11 @@ class Plugin:
         parsed = _parse_product(device.get("PRODUCT"))
         vid_pid = f"{parsed[0]}:{parsed[1]}" if parsed else None
 
+        # Tracked through hidraw instead. hid-steam's evdev for these comes and
+        # goes with Steam opening and closing the device.
+        if vid_pid in STEAM_2026_IDS:
+            return None
+
         if is_joystick and vid_pid and vid_pid in self._allowlist:
             return "controller", vid_pid
 
@@ -383,8 +505,36 @@ class Plugin:
 
         return None
 
+    def _track(self, kernel, vid_pid, name, kind):
+        if kernel in self._connected:
+            return
+        self._connected[kernel] = {
+            "kernel": kernel,
+            "vid_pid": vid_pid,
+            "name": name,
+            "kind": kind,
+        }
+        decky.logger.info(f"{kind} added: {kernel} ({vid_pid})")
+        if not self._disabled:
+            _unbind_deck()
+            self._disabled = True
+
+    def _untrack(self, kernel):
+        if kernel not in self._connected:
+            return
+        entry = self._connected.pop(kernel)
+        decky.logger.info(
+            f"{entry.get('kind', 'device')} removed: {kernel} ({entry.get('vid_pid')})"
+        )
+        if not self._connected and self._disabled:
+            _rebind_deck()
+            self._disabled = False
+
     def _handle_device_event(self, action, device):
         if not self._settings.get("enabled"):
+            return
+        if getattr(device, "subsystem", None) == "hidraw":
+            self._handle_hidraw_event(action, device)
             return
         classified = self._classify_device(device)
         if classified is None:
@@ -392,44 +542,130 @@ class Plugin:
         kind, vid_pid = classified
         kernel = device.sys_name
         if action == "add":
-            if kernel in self._connected:
-                return
-            self._connected[kernel] = {
-                "kernel": kernel,
-                "vid_pid": vid_pid,
-                "name": (device.get("NAME") or "").strip('"'),
-                "kind": kind,
-            }
-            decky.logger.info(f"{kind} added: {kernel} ({vid_pid})")
-            if not self._disabled:
-                _unbind_deck()
-                self._disabled = True
+            self._track(kernel, vid_pid, (device.get("NAME") or "").strip('"'), kind)
         elif action == "remove":
-            if kernel not in self._connected:
+            self._untrack(kernel)
+
+    def _handle_hidraw_event(self, action, device):
+        kernel = device.sys_name
+        if action == "remove":
+            self._close_hidraw(kernel)
+            return
+        if action != "add":
+            return
+        if kernel in self._hidraw:
+            # A re-enumeration, e.g. after the entry was switched back on.
+            self._sync_hidraw(kernel)
+            return
+        info = _steam_2026_info(device)
+        if info is None:
+            return
+        entry = dict(info, connected=True, fd=None)
+        if info["vid_pid"] == STEAM_2026_PUCK:
+            # A puck slot: connected only once the slot's reports say so.
+            entry["connected"] = False
+            try:
+                fd = os.open(info["devnode"], os.O_RDONLY | os.O_NONBLOCK)
+            except OSError as e:
+                decky.logger.error(f"Couldn't open {info['devnode']}: {e}")
                 return
-            entry = self._connected.pop(kernel)
-            decky.logger.info(f"{entry.get('kind', 'device')} removed: {kernel} ({vid_pid})")
-            if not self._connected and self._disabled:
-                _rebind_deck()
-                self._disabled = False
+            entry["fd"] = fd
+            self._loop.add_reader(fd, self._read_slot, kernel)
+        self._hidraw[kernel] = entry
+        decky.logger.info(f"Steam Controller (2026) node: {kernel} ({info['vid_pid']})")
+        self._sync_hidraw(kernel)
+
+    def _sync_hidraw(self, kernel):
+        """Track or untrack a 2026 Steam Controller node to match its state."""
+        entry = self._hidraw.get(kernel)
+        wanted = (
+            entry is not None
+            and entry["connected"]
+            and entry["vid_pid"] in self._allowlist
+        )
+        if wanted:
+            self._track(kernel, entry["vid_pid"], entry["name"], "controller")
+        else:
+            self._untrack(kernel)
+
+    def _read_slot(self, kernel):
+        # Runs on the event loop thread (add_reader), like the udev handlers.
+        entry = self._hidraw.get(kernel)
+        if entry is None or entry["fd"] is None:
+            return
+        state = entry["connected"]
+        while True:
+            try:
+                report = os.read(entry["fd"], 64)
+            except BlockingIOError:
+                break
+            except OSError as e:
+                # ENODEV once the puck goes; the udev remove cleans up too.
+                decky.logger.info(f"{kernel} read ended: {e}")
+                self._close_hidraw(kernel)
+                return
+            if not report:
+                break
+            event = _slot_event(report)
+            if event is not None:
+                state = event
+        if state != entry["connected"]:
+            entry["connected"] = state
+            decky.logger.info(
+                f"Steam Controller (2026) {'connected' if state else 'disconnected'} on {kernel}"
+            )
+            self._sync_hidraw(kernel)
+
+    def _close_hidraw(self, kernel):
+        entry = self._hidraw.pop(kernel, None)
+        if entry is None:
+            return
+        fd = entry.get("fd")
+        if fd is not None:
+            try:
+                self._loop.remove_reader(fd)
+            except Exception as e:
+                decky.logger.debug(f"remove_reader {kernel}: {e}")
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self._untrack(kernel)
 
     async def _enumerate_existing(self, context):
         # Sweep all input devices, not just joysticks, so KB/M get picked up too.
         # Per-device try/except so one weird device can't abort the rest of the
         # sweep and leave us with an inconsistent _connected set.
-        try:
-            iterator = context.list_devices(subsystem="input")
-        except Exception as e:
-            decky.logger.error(f"Failed to list input devices: {e}")
-            return
-        for device in iterator:
+        # hidraw is swept for the 2026 Steam Controller.
+        for subsystem in ("input", "hidraw"):
             try:
-                self._handle_device_event("add", device)
+                devices = list(context.list_devices(subsystem=subsystem))
             except Exception as e:
-                decky.logger.error(
-                    f"Enumeration: device {getattr(device, 'sys_name', '?')} "
-                    f"raised {type(e).__name__}: {e}"
-                )
+                decky.logger.error(f"Failed to list {subsystem} devices: {e}")
+                continue
+            for device in devices:
+                try:
+                    self._handle_device_event("add", device)
+                except Exception as e:
+                    decky.logger.error(
+                        f"Enumeration: device {getattr(device, 'sys_name', '?')} "
+                        f"raised {type(e).__name__}: {e}"
+                    )
+
+    def _steam_2026_connected(self, context):
+        """(kernel, info) for each connected 2026 Steam Controller.
+
+        Uses the tracked nodes while the plugin is on. With it off, nothing
+        reads the puck's slots, so only wired and Bluetooth controllers show.
+        """
+        if self._hidraw:
+            return [(k, e) for k, e in self._hidraw.items() if e["connected"]]
+        out = []
+        for device in context.list_devices(subsystem="hidraw"):
+            info = _steam_2026_info(device)
+            if info is not None and info["vid_pid"] != STEAM_2026_PUCK:
+                out.append((device.sys_name, info))
+        return out
 
     def _enumerate_present_vid_pids(self):
         """Cheap snapshot of currently-plugged joystick-class devices' VID:PIDs.
@@ -447,6 +683,8 @@ class Plugin:
                 if parsed is None:
                     continue
                 present.add(f"{parsed[0]}:{parsed[1]}")
+            for _, info in self._steam_2026_connected(context):
+                present.add(info["vid_pid"])
         except Exception as e:
             decky.logger.debug(f"enumerate_present failed: {e}")
         return sorted(present)
@@ -644,6 +882,8 @@ class Plugin:
                 if parsed is None:
                     continue
                 vid_pid = f"{parsed[0]}:{parsed[1]}"
+                if vid_pid in STEAM_2026_IDS:
+                    continue  # listed from hidraw below
                 name = (device.get("NAME") or "").strip('"')
                 key = (vid_pid, name)
                 if key in seen:
@@ -660,6 +900,17 @@ class Plugin:
                     "is_supported": vid_pid in known,
                     "is_active": vid_pid in self._allowlist,
                     "is_internal": vid_pid == f"{DECK_VID}:{DECK_PID}",
+                })
+            for kernel, info in self._steam_2026_connected(context):
+                out.append({
+                    "kernel": kernel,
+                    "name": info["name"],
+                    "uniq": info["uniq"],
+                    "product": info["product"],
+                    "vid_pid": info["vid_pid"],
+                    "is_supported": info["vid_pid"] in known,
+                    "is_active": info["vid_pid"] in self._allowlist,
+                    "is_internal": False,
                 })
         except Exception as e:
             decky.logger.error(f"get_current_devices failed: {e}")
